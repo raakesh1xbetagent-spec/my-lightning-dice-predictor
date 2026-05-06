@@ -1,11 +1,11 @@
 // ============================================================
-// telegram-bot.js (v13.1 - Fixed Railway Polling)
+// telegram-bot.js (v13.2 - Simplified Single Message Format)
 // 
 // Features:
-// - Send notifications for PREDICTION, WAITING, CORRECT, WRONG
-// - Support commands: /start, /predict, /stats, /history, /status
-// - Fixed 409 error handling for Railway deployment
-// - Proper webhook cleanup with retry logic
+// - Single message for both PREDICTION and WAITING states
+// - Shows previous prediction result (correct/wrong)
+// - Clear retry count display
+// - Clean, minimal format
 // ============================================================
 
 const axios = require('axios');
@@ -23,6 +23,14 @@ class TelegramBot {
         this.pollingAttempts = 0;
         this.maxPollingAttempts = 3;
         
+        // Store last prediction result for context
+        this.lastPredictionResult = {
+            predictedGroup: null,
+            actualGroup: null,
+            isCorrect: null,
+            retryCount: 0
+        };
+        
         // Store last notification to avoid spam
         this.lastNotification = {
             type: null,
@@ -33,7 +41,6 @@ class TelegramBot {
         console.log(`🤖 Telegram Bot initialized: ${this.isEnabled ? 'ENABLED' : 'DISABLED (missing token/chatId)'}`);
         
         if (this.isEnabled) {
-            // Don't call setupBotCommands immediately, wait for startPolling
             console.log(`📱 Chat ID: ${this.chatId}`);
             console.log(`🌐 API Base URL: ${this.apiBaseUrl}`);
         }
@@ -54,7 +61,7 @@ class TelegramBot {
         
         const commands = [
             { command: 'start', description: '🤖 Start bot & get current status' },
-            { command: 'predict', description: '🎯 Get current AI prediction (or WAITING status)' },
+            { command: 'predict', description: '🎯 Get current AI prediction' },
             { command: 'stats', description: '📊 Show last 30 results statistics' },
             { command: 'history', description: '📜 Show last 10 prediction history' },
             { command: 'status', description: '🔍 Show AI system status' },
@@ -110,7 +117,6 @@ class TelegramBot {
      */
     async sendMessage(text, parseMode = 'HTML') {
         if (!this.isEnabled) {
-            console.log('⚠️ Telegram not configured, skipping message');
             return false;
         }
         
@@ -132,7 +138,33 @@ class TelegramBot {
     }
     
     /**
-     * Send prediction notification
+     * Get previous prediction result text
+     */
+    getPreviousResultText() {
+        if (!this.lastPredictionResult.predictedGroup) {
+            return null;
+        }
+        
+        const icon = this.lastPredictionResult.isCorrect === true ? '✅ CORRECT' : 
+                     this.lastPredictionResult.isCorrect === false ? '❌ WRONG' : '⏳ PENDING';
+        
+        return `📜 Previous: ${this.lastPredictionResult.predictedGroup} → ${this.lastPredictionResult.actualGroup || '?'} ${icon}`;
+    }
+    
+    /**
+     * Update last prediction result
+     */
+    updateLastPredictionResult(predictedGroup, actualGroup, isCorrect, retryCount) {
+        this.lastPredictionResult = {
+            predictedGroup: predictedGroup,
+            actualGroup: actualGroup,
+            isCorrect: isCorrect,
+            retryCount: retryCount || 0
+        };
+    }
+    
+    /**
+     * Send prediction notification (SINGLE MESSAGE - ACTIVE MODE)
      */
     async sendPredictionNotification(prediction) {
         if (!this.isEnabled) return;
@@ -142,7 +174,6 @@ class TelegramBot {
         if (this.lastNotification.type === 'prediction' && 
             this.lastNotification.predictedGroup === prediction.predictedGroup &&
             now - this.lastNotification.timestamp < 2000) {
-            console.log('⏭️ Skipping duplicate prediction notification');
             return;
         }
         
@@ -153,36 +184,47 @@ class TelegramBot {
         };
         
         const stats = prediction.stats;
-        const retryText = prediction.isRetry ? `\n🔄 RETRY #${prediction.retryCount + 1}` : '';
-        const confidenceStar = this.getConfidenceStars(prediction.confidence);
+        const retryCount = prediction.retryCount || 0;
+        const isRetry = prediction.isRetry || false;
         
-        const message = `
-🎯 <b>NEW PREDICTION</b>${retryText}
-━━━━━━━━━━━━━━━━━━━━━
+        // Get previous result text
+        const previousText = this.getPreviousResultText();
+        
+        // Build status text
+        let statusText = '🟢 ACTIVE';
+        let retryDisplay = '';
+        
+        if (isRetry && retryCount > 0) {
+            retryDisplay = `\n🔄 Retry #${retryCount}`;
+        } else if (retryCount === 0) {
+            retryDisplay = `\n🔄 Retry Count: 0`;
+        }
+        
+        // Build the message
+        let message = `🎯 NEXT PREDICTION: ${prediction.predictedGroup}
+━━━━━━━━━━━━━━━━━━━━━`;
 
-📊 <b>Last 30 Results Statistics:</b>
-🔴 <b>LOW</b> (3-9)     → ${stats.LOW.percentage}% (${stats.LOW.count}/30) ${stats.LOW.trend.emoji}
-🟡 <b>MEDIUM</b> (10-11) → ${stats.MEDIUM.percentage}% (${stats.MEDIUM.count}/30) ${stats.MEDIUM.trend.emoji}
-🟢 <b>HIGH</b> (12-18)   → ${stats.HIGH.percentage}% (${stats.HIGH.count}/30) ${stats.HIGH.trend.emoji}
+        if (previousText) {
+            message += `\n${previousText}`;
+        }
+        
+        message += `${retryDisplay}
+⏳ Status: ${statusText}
+💪 Confidence: ${prediction.confidence}%`;
 
-━━━━━━━━━━━━━━━━━━━━━
-📐 <b>Median Analysis:</b>
-Median Value: <code>${prediction.medianValue}</code> occurrences
-Median Group: <b>${prediction.medianGroup}</b>
-
-━━━━━━━━━━━━━━━━━━━━━
-🎯 <b>AI PREDICTION:</b> <b>${prediction.predictedGroup}</b>
-💪 <b>Confidence:</b> ${prediction.confidence}% ${confidenceStar}
-
-${prediction.message}
-        `.trim();
+        // Add frequencies summary
+        if (stats) {
+            message += `\n━━━━━━━━━━━━━━━━━━━━━
+📊 ${stats.LOW.count} | ${stats.MEDIUM.count} | ${stats.HIGH.count}
+🔴 LOW ${stats.LOW.percentage}%  🟡 MED ${stats.MEDIUM.percentage}%  🟢 HIGH ${stats.HIGH.percentage}%`;
+        }
         
         await this.sendMessage(message);
-        console.log(`📱 Telegram: Prediction notification sent (${prediction.predictedGroup})`);
+        console.log(`📱 Telegram: Prediction sent (${prediction.predictedGroup})`);
     }
     
     /**
-     * Send WAITING notification
+     * Send WAITING notification (SINGLE MESSAGE - WAITING MODE)
      */
     async sendWaitingNotification(waitingData) {
         if (!this.isEnabled) return;
@@ -200,78 +242,87 @@ ${prediction.message}
         };
         
         const stats = waitingData.stats;
-        let waitingReasonText = '';
+        const retryCount = waitingData.retryCount || this.lastPredictionResult.retryCount || 0;
         
+        // Determine waiting reason
+        let waitingReasonText = '';
         if (waitingData.waitingReason === 'ALL_GROUPS_EQUAL') {
-            waitingReasonText = '⚖️ All three groups have EQUAL frequency';
+            waitingReasonText = '⚖️ All groups equal';
         } else if (waitingData.waitingReason === 'DUPLICATE_MEDIAN') {
-            waitingReasonText = '🔄 Median value appears in MULTIPLE groups';
+            waitingReasonText = '🔄 Duplicate median';
         } else {
-            waitingReasonText = '⏳ Waiting for unique median condition';
+            waitingReasonText = '⏳ No unique median';
         }
         
-        const message = `
-⏳ <b>WAITING MODE</b>
-━━━━━━━━━━━━━━━━━━━━━
+        // Get previous result text
+        const previousText = this.getPreviousResultText();
+        
+        // Build the message
+        let message = `⏳ WAITING MODE
+━━━━━━━━━━━━━━━━━━━━━`;
 
-📊 <b>Last 30 Results Statistics:</b>
-🔴 <b>LOW</b> (3-9)     → ${stats.LOW.percentage}% (${stats.LOW.count}/30) ${stats.LOW.trend.emoji}
-🟡 <b>MEDIUM</b> (10-11) → ${stats.MEDIUM.percentage}% (${stats.MEDIUM.count}/30) ${stats.MEDIUM.trend.emoji}
-🟢 <b>HIGH</b> (12-18)   → ${stats.HIGH.percentage}% (${stats.HIGH.count}/30) ${stats.HIGH.trend.emoji}
+        if (previousText) {
+            message += `\n${previousText}`;
+        }
+        
+        message += `\n🔄 Retry Count: ${retryCount} (${retryCount >= 2 ? 'WAITING before retry #' + (retryCount + 1) : 'active'})
+⏰ Reason: ${waitingReasonText}`;
 
-━━━━━━━━━━━━━━━━━━━━━
-⚠️ <b>Reason:</b> ${waitingReasonText}
-
-📐 <b>Median Calculation:</b>
-<code>${waitingData.medianResult?.sorted?.[0]?.count || '?'} → ${waitingData.medianResult?.sorted?.[1]?.count || '?'} → ${waitingData.medianResult?.sorted?.[2]?.count || '?'}</code>
-
-⏰ Waiting for next result to break the tie...
-        `.trim();
+        // Add frequencies
+        if (stats) {
+            const sorted = [stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b) => a-b);
+            const median = sorted[1];
+            
+            message += `\n━━━━━━━━━━━━━━━━━━━━━
+📊 ${stats.LOW.count} | ${stats.MEDIUM.count} | ${stats.HIGH.count}
+🔴 LOW ${stats.LOW.percentage}%  🟡 MED ${stats.MEDIUM.percentage}%  🟢 HIGH ${stats.HIGH.percentage}%
+📐 Median: ${median}`;
+        }
+        
+        message += `\n━━━━━━━━━━━━━━━━━━━━━
+⏰ Next prediction after 1 more result`;
         
         await this.sendMessage(message);
         console.log(`📱 Telegram: WAITING notification sent (${waitingData.waitingReason})`);
     }
     
     /**
-     * Send correct prediction notification
+     * Send correct prediction notification (updates context)
      */
     async sendCorrectNotification(predictedGroup, actualGroup, retryCount) {
         if (!this.isEnabled) return;
         
-        const retryText = retryCount > 0 ? ` (Correct after ${retryCount} retries)` : '';
-        const message = `
-✅ <b>CORRECT PREDICTION</b>${retryText}
+        // Update stored last result
+        this.updateLastPredictionResult(predictedGroup, actualGroup, true, retryCount);
+        
+        // Send concise correct message
+        const message = `✅ CORRECT PREDICTION
 ━━━━━━━━━━━━━━━━━━━━━
-
-🎯 Predicted: <b>${predictedGroup}</b>
-🎲 Actual: <b>${actualGroup}</b>
-
-✨ Prediction was ACCURATE!
-        `.trim();
+🎯 ${predictedGroup} → ${actualGroup} ✓
+🔄 Retry #${retryCount || 0}`;
         
         await this.sendMessage(message);
-        console.log(`📱 Telegram: CORRECT notification sent (${predictedGroup} → ${actualGroup})`);
+        console.log(`📱 Telegram: CORRECT (${predictedGroup} → ${actualGroup})`);
     }
     
     /**
-     * Send wrong prediction notification
+     * Send wrong prediction notification (updates context)
      */
     async sendWrongNotification(predictedGroup, actualGroup, retryCount) {
         if (!this.isEnabled) return;
         
-        const retryText = retryCount > 0 ? ` (Retry #${retryCount})` : '';
-        const message = `
-❌ <b>WRONG PREDICTION</b>${retryText}
+        // Update stored last result
+        this.updateLastPredictionResult(predictedGroup, actualGroup, false, retryCount);
+        
+        // Send concise wrong message
+        const message = `❌ WRONG PREDICTION
 ━━━━━━━━━━━━━━━━━━━━━
-
-🎯 Predicted: <b>${predictedGroup}</b>
-🎲 Actual: <b>${actualGroup}</b>
-
-⚠️ AI will recalculate median with updated data...
-        `.trim();
+🎯 ${predictedGroup} → ${actualGroup} ✗
+🔄 Retry #${retryCount || 0}
+⏳ Recalculating median...`;
         
         await this.sendMessage(message);
-        console.log(`📱 Telegram: WRONG notification sent (${predictedGroup} → ${actualGroup})`);
+        console.log(`📱 Telegram: WRONG (${predictedGroup} → ${actualGroup})`);
     }
     
     /**
@@ -282,33 +333,26 @@ ${prediction.message}
         
         const activeText = aiStatus.isActive ? '🟢 ACTIVE' : '⚪ WAITING';
         const accuracyText = aiStatus.accuracy ? `${aiStatus.accuracy.toFixed(1)}%` : 'N/A';
+        const convWrong = aiStatus.consecutiveWrongCount || 0;
         
-        let message = `
-🤖 <b>AI SYSTEM STATUS</b>
+        let message = `🤖 AI STATUS
 ━━━━━━━━━━━━━━━━━━━━━
-
-📊 <b>Overall Stats:</b>
-• Total Predictions: ${aiStatus.totalPredictions || 0}
-• Correct: ${aiStatus.correctPredictions || 0}
-• Accuracy: ${accuracyText}
-
-🎯 <b>Current State:</b>
-• Mode: ${activeText}
-• Current Prediction: ${aiStatus.currentPrediction || 'None'}
-• Consecutive Wrong: ${aiStatus.consecutiveWrongCount || 0}
-
-📐 <b>Last 30 Frequencies:</b>
-• LOW: ${aiStatus.currentFrequencies?.LOW || 0}
-• MEDIUM: ${aiStatus.currentFrequencies?.MEDIUM || 0}
-• HIGH: ${aiStatus.currentFrequencies?.HIGH || 0}
-        `.trim();
+📊 Total: ${aiStatus.totalPredictions || 0} | ✅ ${aiStatus.correctPredictions || 0}
+📈 Accuracy: ${accuracyText}
+━━━━━━━━━━━━━━━━━━━━━
+🎯 Mode: ${activeText}
+📌 Prediction: ${aiStatus.currentPrediction || 'None'}
+🔄 Consecutive Wrong: ${convWrong}
+━━━━━━━━━━━━━━━━━━━━━
+📐 LOW: ${aiStatus.currentFrequencies?.LOW || 0}
+🟡 MEDIUM: ${aiStatus.currentFrequencies?.MEDIUM || 0}
+🟢 HIGH: ${aiStatus.currentFrequencies?.HIGH || 0}`;
         
         if (aiStatus.waitingReason) {
-            message += `\n\n⚠️ <b>WAITING Reason:</b> ${aiStatus.waitingReason}`;
+            message += `\n⚠️ ${aiStatus.waitingReason}`;
         }
         
         await this.sendMessage(message);
-        console.log('📱 Telegram: Status message sent');
     }
     
     /**
@@ -317,22 +361,27 @@ ${prediction.message}
     async sendStatsMessage(stats, last30Results) {
         if (!this.isEnabled) return;
         
-        const message = `
-📊 <b>LAST 30 RESULTS STATISTICS</b>
+        const sorted = [stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b) => a-b);
+        const median = sorted[1];
+        
+        let medianGroup = '';
+        if (stats.LOW.count === median) medianGroup = 'LOW';
+        else if (stats.MEDIUM.count === median) medianGroup = 'MEDIUM';
+        else medianGroup = 'HIGH';
+        
+        // Check if median is unique
+        const isUnique = [stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].filter(c => c === median).length === 1;
+        const uniqueText = isUnique ? `✅ UNIQUE → ${medianGroup}` : '⚠️ DUPLICATE (WAITING)';
+        
+        const message = `📊 LAST 30 STATISTICS
 ━━━━━━━━━━━━━━━━━━━━━
-
-🔴 <b>LOW</b> (3-9)     → ${stats.LOW.percentage}% (${stats.LOW.count}/30) ${stats.LOW.trend.emoji} ${stats.LOW.trend.text}
-🟡 <b>MEDIUM</b> (10-11) → ${stats.MEDIUM.percentage}% (${stats.MEDIUM.count}/30) ${stats.MEDIUM.trend.emoji} ${stats.MEDIUM.trend.text}
-🟢 <b>HIGH</b> (12-18)   → ${stats.HIGH.percentage}% (${stats.HIGH.count}/30) ${stats.HIGH.trend.emoji} ${stats.HIGH.trend.text}
-
+🔴 LOW: ${stats.LOW.count}/30 (${stats.LOW.percentage}%) ${stats.LOW.trend.emoji}
+🟡 MEDIUM: ${stats.MEDIUM.count}/30 (${stats.MEDIUM.percentage}%) ${stats.MEDIUM.trend.emoji}
+🟢 HIGH: ${stats.HIGH.count}/30 (${stats.HIGH.percentage}%) ${stats.HIGH.trend.emoji}
 ━━━━━━━━━━━━━━━━━━━━━
-📐 <b>Median Calculation:</b>
-${stats.LOW.count} → ${stats.MEDIUM.count} → ${stats.HIGH.count}
-Median: <b>${[stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b)=>a-b)[1]}</b>
-        `.trim();
+📐 Median: ${median} → ${uniqueText}`;
         
         await this.sendMessage(message);
-        console.log('📱 Telegram: Stats message sent');
     }
     
     /**
@@ -342,30 +391,30 @@ Median: <b>${[stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b)=
         if (!this.isEnabled) return;
         
         if (!predictions || predictions.length === 0) {
-            await this.sendMessage('📜 No prediction history yet. Waiting for first prediction...');
+            await this.sendMessage('📜 No prediction history yet.');
             return;
         }
         
         const last10 = predictions.slice(0, 10);
         let historyText = '';
         
-        for (const p of last10) {
+        for (let i = 0; i < last10.length; i++) {
+            const p = last10[i];
             const icon = p.isCorrect === true ? '✅' : (p.isCorrect === false ? '❌' : '⏳');
-            const date = new Date(p.timestamp).toLocaleString();
-            historyText += `\n${icon} ${p.predictedGroup} → ${p.actualGroup || '?'} (${date.slice(0, 16)})`;
+            const num = i + 1;
+            historyText += `\n${num}. ${icon} ${p.predictedGroup} → ${p.actualGroup || '?'}`;
         }
         
-        const message = `
-📜 <b>LAST 10 PREDICTIONS</b>
+        const correct = predictions.filter(p => p.isCorrect === true).length;
+        const total = predictions.filter(p => p.isCorrect !== null).length;
+        const accuracy = total > 0 ? ((correct / total) * 100).toFixed(1) : 0;
+        
+        const message = `📜 LAST 10 PREDICTIONS
+━━━━━━━━━━━━━━━━━━━━━${historyText}
 ━━━━━━━━━━━━━━━━━━━━━
-${historyText}
-
-━━━━━━━━━━━━━━━━━━━━━
-📊 Overall Accuracy: ${this.getOverallAccuracy(predictions)}%
-        `.trim();
+📊 Accuracy: ${accuracy}% (${correct}/${total})`;
         
         await this.sendMessage(message);
-        console.log('📱 Telegram: History message sent');
     }
     
     /**
@@ -390,7 +439,7 @@ ${historyText}
     }
     
     /**
-     * Start polling for user commands - FIXED VERSION
+     * Start polling for user commands
      */
     async startPolling() {
         if (!this.isEnabled) {
@@ -400,14 +449,14 @@ ${historyText}
         
         console.log('🔄 Setting up Telegram bot polling...');
         
-        // First, delete webhook with proper error handling
+        // First, delete webhook
         const webhookDeleted = await this.deleteWebhook();
         
         if (!webhookDeleted) {
             console.log('⚠️ Could not delete webhook, but continuing with polling...');
         }
         
-        // Wait a moment for webhook deletion to take effect
+        // Wait for webhook deletion
         await new Promise(resolve => setTimeout(resolve, 2000));
         
         // Test bot connection
@@ -416,18 +465,15 @@ ${historyText}
             const response = await axios.get(testUrl, { timeout: 10000 });
             if (response.data && response.data.ok) {
                 console.log(`✅ Bot connected: @${response.data.result.username}`);
-            } else {
-                console.log('⚠️ Bot connection test failed');
             }
         } catch (error) {
             console.error('❌ Bot connection test failed:', error.message);
-            console.log('⚠️ Please check your TELEGRAM_BOT_TOKEN');
         }
         
-        // Setup commands after connection
+        // Setup commands
         await this.setupBotCommands();
         
-        // Start polling with longer interval (5 seconds instead of 2)
+        // Start polling
         this.pollingInterval = setInterval(async () => {
             await this.pollUpdates();
         }, 5000);
@@ -436,7 +482,7 @@ ${historyText}
     }
     
     /**
-     * Poll for updates from Telegram - FIXED VERSION
+     * Poll for updates from Telegram
      */
     async pollUpdates() {
         if (!this.isEnabled) return;
@@ -455,10 +501,6 @@ ${historyText}
             if (response.data && response.data.ok) {
                 const updates = response.data.result;
                 
-                if (updates && updates.length > 0) {
-                    console.log(`📨 Received ${updates.length} update(s)`);
-                }
-                
                 for (const update of updates) {
                     if (update.update_id > this.lastUpdateId) {
                         this.lastUpdateId = update.update_id;
@@ -469,30 +511,20 @@ ${historyText}
                         const text = update.message.text.trim();
                         const command = text.toLowerCase();
                         
-                        // Respond to any chat that sends a command (more flexible)
-                        console.log(`📱 Command from chat ${chatId}: ${command}`);
-                        
                         await this.handleCommand(command, chatId);
                     }
                 }
             }
         } catch (error) {
-            // 409 is not an error we should log - it's just "conflict" from rapid polling
-            // Only log actual connection errors
-            if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
-                console.log('⚠️ Telegram polling timeout, continuing...');
-            } else if (error.response?.status === 409) {
-                // 409 is normal, just continue
-                // console.log('⏳ (Polling in progress)');
+            // Silently handle 409 errors
+            if (error.response?.status === 409) {
+                // Normal polling conflict, ignore
             } else if (error.response?.status === 404) {
-                console.error('❌ Bot token invalid or bot not found');
+                console.error('❌ Bot token invalid');
                 this.isEnabled = false;
                 this.stopPolling();
-            } else {
-                // Only log other errors occasionally to avoid spam
-                if (Math.random() < 0.1) {
-                    console.error('Error polling Telegram updates:', error.message);
-                }
+            } else if (Math.random() < 0.05) {
+                console.error('Polling error:', error.message);
             }
         }
     }
@@ -501,13 +533,11 @@ ${historyText}
      * Handle user commands
      */
     async handleCommand(command, chatId) {
-        console.log(`📱 Handling command: ${command}`);
-        
         // Fetch current data from API
         const data = await this.fetchAPI('/api/all-data');
         
         if (!data) {
-            await this.sendMessageToChat(chatId, '⚠️ Unable to fetch data from server. Please try again later.');
+            await this.sendMessageToChat(chatId, '⚠️ Unable to fetch data from server.');
             return;
         }
         
@@ -516,23 +546,23 @@ ${historyText}
                 await this.sendStartMessage(chatId, data);
                 break;
             case '/predict':
-                await this.sendPredictionFromAPI(chatId, data);
+                await this.sendPredictionCommand(chatId, data);
                 break;
             case '/stats':
-                await this.sendStatsFromAPI(chatId, data);
+                await this.sendStatsCommand(chatId, data);
                 break;
             case '/history':
-                await this.sendHistoryFromAPI(chatId, data);
+                await this.sendHistoryCommand(chatId, data);
                 break;
             case '/status':
-                await this.sendStatusFromAPI(chatId, data);
+                await this.sendStatusCommand(chatId, data);
                 break;
             case '/reset':
                 await this.handleReset(chatId);
                 break;
             default:
                 if (command.startsWith('/')) {
-                    await this.sendMessageToChat(chatId, `❓ Unknown command: ${command}\n\n📱 Available commands: /start, /predict, /stats, /history, /status`);
+                    await this.sendMessageToChat(chatId, `❓ Unknown: ${command}\nCommands: /predict, /stats, /history, /status`);
                 }
         }
     }
@@ -565,7 +595,6 @@ ${historyText}
             });
             return response.data;
         } catch (error) {
-            console.error(`API fetch error (${endpoint}):`, error.message);
             return null;
         }
     }
@@ -574,169 +603,152 @@ ${historyText}
      * Send start message
      */
     async sendStartMessage(chatId, data) {
-        const message = `
-⚡ <b>Lightning Dice Predictor v13.1</b>
-🤖 <b>Median-Based Statistical AI</b>
+        const message = `⚡ Lightning Dice Predictor v13.2
+🤖 Median-Based Statistical AI
 ━━━━━━━━━━━━━━━━━━━━━
-
-📊 <b>How it works:</b>
-• Analyzes last 30 results
-• Calculates frequency median
-• Predicts median group when UNIQUE
-• WAITING when duplicate or equal
-
+📊 Analyzes last 30 results
+📐 Predicts median group when UNIQUE
+⏳ WAITING on duplicate/equal
 ━━━━━━━━━━━━━━━━━━━━━
-📱 <b>Available Commands:</b>
-/predict - Get current prediction
-/stats - Show 30-result statistics
+📱 Commands:
+/predict - Current prediction
+/stats - 30-result statistics
 /history - Last 10 predictions
-/status - AI system status
-/reset - Reset AI (admin)
-        `.trim();
+/status - AI system status`;
         
         await this.sendMessageToChat(chatId, message);
     }
     
     /**
-     * Send prediction from API
+     * Send prediction command response
      */
-    async sendPredictionFromAPI(chatId, data) {
+    async sendPredictionCommand(chatId, data) {
         const prediction = data.currentPrediction;
         
         if (!prediction || prediction.status === 'WAITING' || prediction.waitingForData) {
-            const waitingMessage = `
-⏳ <b>WAITING MODE</b>
-
-No unique median found yet.
-
-${prediction?.message || 'Waiting for next result to create unique median condition.'}
-
-📊 Use /stats to see current frequencies.
-            `.trim();
-            await this.sendMessageToChat(chatId, waitingMessage);
+            const stats = prediction?.stats;
+            let message = `⏳ WAITING MODE
+━━━━━━━━━━━━━━━━━━━━━`;
+            
+            const previousText = this.getPreviousResultText();
+            if (previousText) {
+                message += `\n${previousText}`;
+            }
+            
+            if (stats) {
+                message += `\n━━━━━━━━━━━━━━━━━━━━━
+📊 ${stats.LOW.count} | ${stats.MEDIUM.count} | ${stats.HIGH.count}
+🔴 LOW ${stats.LOW.percentage}%  🟡 MED ${stats.MEDIUM.percentage}%  🟢 HIGH ${stats.HIGH.percentage}%`;
+            }
+            
+            message += `\n━━━━━━━━━━━━━━━━━━━━━
+📐 Need ${Math.max(0, 30 - (data.last30Groups?.length || 0))} more results`;
+            
+            await this.sendMessageToChat(chatId, message);
             return;
         }
         
         const stats = prediction.stats;
-        const retryText = prediction.isRetry ? `\n🔄 RETRY #${prediction.retryCount + 1}` : '';
+        const retryCount = prediction.retryCount || 0;
+        const previousText = this.getPreviousResultText();
         
-        const message = `
-🎯 <b>CURRENT PREDICTION</b>${retryText}
-━━━━━━━━━━━━━━━━━━━━━
-
-📊 <b>Last 30 Results:</b>
-🔴 LOW: ${stats.LOW.percentage}% (${stats.LOW.count}/30) ${stats.LOW.trend.emoji}
-🟡 MEDIUM: ${stats.MEDIUM.percentage}% (${stats.MEDIUM.count}/30) ${stats.MEDIUM.trend.emoji}
-🟢 HIGH: ${stats.HIGH.percentage}% (${stats.HIGH.count}/30) ${stats.HIGH.trend.emoji}
-
-━━━━━━━━━━━━━━━━━━━━━
-🎯 <b>PREDICTION: ${prediction.predictedGroup}</b>
+        let message = `🎯 NEXT PREDICTION: ${prediction.predictedGroup}
+━━━━━━━━━━━━━━━━━━━━━`;
+        
+        if (previousText) {
+            message += `\n${previousText}`;
+        }
+        
+        message += `\n🔄 Retry Count: ${retryCount}
+⏳ Status: ACTIVE
 💪 Confidence: ${prediction.confidence}%
-
-${prediction.message}
-        `.trim();
+━━━━━━━━━━━━━━━━━━━━━
+📊 ${stats.LOW.count} | ${stats.MEDIUM.count} | ${stats.HIGH.count}
+🔴 LOW ${stats.LOW.percentage}%  🟡 MED ${stats.MEDIUM.percentage}%  🟢 HIGH ${stats.HIGH.percentage}%`;
         
         await this.sendMessageToChat(chatId, message);
     }
     
     /**
-     * Send stats from API
+     * Send stats command response
      */
-    async sendStatsFromAPI(chatId, data) {
+    async sendStatsCommand(chatId, data) {
         const prediction = data.currentPrediction;
         
         if (!prediction || !prediction.stats) {
-            await this.sendMessageToChat(chatId, '⚠️ Unable to fetch statistics. Please try again.');
+            await this.sendMessageToChat(chatId, '⚠️ No statistics available yet.');
             return;
         }
         
         const stats = prediction.stats;
+        const sorted = [stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b) => a-b);
+        const median = sorted[1];
         
-        const message = `
-📊 <b>LAST 30 RESULTS STATISTICS</b>
+        const message = `📊 LAST 30 STATISTICS
 ━━━━━━━━━━━━━━━━━━━━━
-
-🔴 <b>LOW</b> (3-9)     → ${stats.LOW.percentage}% (${stats.LOW.count}/30) ${stats.LOW.trend.emoji} ${stats.LOW.trend.text}
-🟡 <b>MEDIUM</b> (10-11) → ${stats.MEDIUM.percentage}% (${stats.MEDIUM.count}/30) ${stats.MEDIUM.trend.emoji} ${stats.MEDIUM.trend.text}
-🟢 <b>HIGH</b> (12-18)   → ${stats.HIGH.percentage}% (${stats.HIGH.count}/30) ${stats.HIGH.trend.emoji} ${stats.HIGH.trend.text}
-
+🔴 LOW: ${stats.LOW.count}/30 (${stats.LOW.percentage}%)
+🟡 MEDIUM: ${stats.MEDIUM.count}/30 (${stats.MEDIUM.percentage}%)
+🟢 HIGH: ${stats.HIGH.count}/30 (${stats.HIGH.percentage}%)
 ━━━━━━━━━━━━━━━━━━━━━
-📐 <b>Raw Frequencies:</b>
-<code>${stats.LOW.count} → ${stats.MEDIUM.count} → ${stats.HIGH.count}</code>
-
-Median: <b>${[stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b)=>a-b)[1]}</b>
-        `.trim();
+📐 Median: ${median}`;
         
         await this.sendMessageToChat(chatId, message);
     }
     
     /**
-     * Send history from API
+     * Send history command response
      */
-    async sendHistoryFromAPI(chatId, data) {
+    async sendHistoryCommand(chatId, data) {
         const predictions = data.predictions || [];
         
         if (predictions.length === 0) {
-            await this.sendMessageToChat(chatId, '📜 No prediction history yet. Waiting for data...');
+            await this.sendMessageToChat(chatId, '📜 No prediction history yet.');
             return;
         }
         
         const last10 = predictions.slice(0, 10);
         let historyText = '';
         
-        for (const p of last10) {
+        for (let i = 0; i < last10.length; i++) {
+            const p = last10[i];
             const icon = p.isCorrect === true ? '✅' : (p.isCorrect === false ? '❌' : '⏳');
-            const time = p.time || (p.timestamp ? new Date(p.timestamp).toLocaleTimeString() : '--');
-            historyText += `\n${icon} ${p.predictedGroup} → ${p.actualGroup || '?'} (${time})`;
+            historyText += `\n${i+1}. ${icon} ${p.predictedGroup} → ${p.actualGroup || '?'}`;
         }
         
         const correct = predictions.filter(p => p.isCorrect === true).length;
         const total = predictions.filter(p => p.isCorrect !== null).length;
         const accuracy = total > 0 ? ((correct / total) * 100).toFixed(1) : 0;
         
-        const message = `
-📜 <b>LAST 10 PREDICTIONS</b>
+        const message = `📜 LAST 10 PREDICTIONS
+━━━━━━━━━━━━━━━━━━━━━${historyText}
 ━━━━━━━━━━━━━━━━━━━━━
-${historyText}
-
-━━━━━━━━━━━━━━━━━━━━━
-📊 Overall Accuracy: ${accuracy}% (${correct}/${total})
-        `.trim();
+📊 Accuracy: ${accuracy}% (${correct}/${total})`;
         
         await this.sendMessageToChat(chatId, message);
     }
     
     /**
-     * Send status from API
+     * Send status command response
      */
-    async sendStatusFromAPI(chatId, data) {
+    async sendStatusCommand(chatId, data) {
         const aiStats = data.aiStats || {};
         const prediction = data.currentPrediction;
+        const aiStatus = data.aiStatus || {};
         
         const accuracy = aiStats.accuracy || 0;
         const totalPredictions = aiStats.total_predictions || 0;
         const correctPredictions = aiStats.correct_predictions || 0;
+        const isActive = prediction && prediction.status !== 'WAITING';
+        const convWrong = aiStatus.consecutiveWrongCount || 0;
         
-        const isActive = prediction && prediction.status !== 'WAITING' && !prediction.waitingForData;
-        
-        const message = `
-🤖 <b>AI SYSTEM STATUS</b>
+        const message = `🤖 AI STATUS
 ━━━━━━━━━━━━━━━━━━━━━
-
-📊 <b>Overall Stats:</b>
-• Total Predictions: ${totalPredictions}
-• Correct: ${correctPredictions}
-• Accuracy: ${typeof accuracy === 'number' ? accuracy.toFixed(1) : '0'}%
-
-🎯 <b>Current State:</b>
-• Mode: ${isActive ? '🟢 PREDICTION ACTIVE' : '⚪ WAITING MODE'}
-• Current Prediction: ${prediction?.predictedGroup || 'None'}
-• Retry Count: ${prediction?.retryCount || 0}
-
-📐 <b>Algorithm:</b>
-Median-Based Statistical AI (v13.1)
-Analyzes last 30 results → predicts median group when unique
-        `.trim();
+📊 Total: ${totalPredictions} | ✅ ${correctPredictions}
+📈 Accuracy: ${accuracy.toFixed(1)}%
+━━━━━━━━━━━━━━━━━━━━━
+🎯 Mode: ${isActive ? 'ACTIVE' : 'WAITING'}
+📌 Prediction: ${prediction?.predictedGroup || 'None'}
+🔄 Wrong Count: ${convWrong}`;
         
         await this.sendMessageToChat(chatId, message);
     }
@@ -750,13 +762,19 @@ Analyzes last 30 results → predicts median group when unique
                 timeout: 10000
             });
             if (response.data && response.data.success) {
-                await this.sendMessageToChat(chatId, '🔄 AI has been reset to WAITING mode.');
+                // Reset stored context
+                this.lastPredictionResult = {
+                    predictedGroup: null,
+                    actualGroup: null,
+                    isCorrect: null,
+                    retryCount: 0
+                };
+                await this.sendMessageToChat(chatId, '🔄 AI reset to WAITING mode.');
             } else {
-                await this.sendMessageToChat(chatId, '⚠️ Failed to reset AI. Please try again.');
+                await this.sendMessageToChat(chatId, '⚠️ Failed to reset AI.');
             }
         } catch (error) {
-            console.error('Reset error:', error.message);
-            await this.sendMessageToChat(chatId, '⚠️ Error resetting AI. Server may be unavailable.');
+            await this.sendMessageToChat(chatId, '⚠️ Error resetting AI.');
         }
     }
     
