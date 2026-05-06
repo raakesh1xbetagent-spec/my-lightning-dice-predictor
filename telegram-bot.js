@@ -45,25 +45,34 @@ class TelegramBot {
      * Setup bot commands via Telegram API
      */
     async setupBotCommands() {
-        if (!this.isEnabled) return;
-        
-        const commands = [
-            { command: 'start', description: '🤖 Start bot & get current status' },
-            { command: 'predict', description: '🎯 Get current AI prediction (or WAITING status)' },
-            { command: 'stats', description: '📊 Show last 30 results statistics' },
-            { command: 'history', description: '📜 Show last 10 prediction history' },
-            { command: 'status', description: '🔍 Show AI system status' },
-            { command: 'reset', description: '🔄 Reset AI state (admin only)' }
-        ];
-        
-        try {
-            const url = `https://api.telegram.org/bot${this.botToken}/setMyCommands`;
-            await axios.post(url, { commands });
-            console.log('✅ Telegram bot commands registered');
-        } catch (error) {
-            console.error('❌ Failed to register commands:', error.message);
-        }
+    if (!this.isEnabled) return;
+    
+    // First, delete any existing webhook
+    try {
+        const deleteUrl = `https://api.telegram.org/bot${this.botToken}/deleteWebhook`;
+        await axios.post(deleteUrl, { drop_pending_updates: true });
+        console.log('✅ Webhook deleted, using polling mode');
+    } catch (error) {
+        console.log('Webhook delete error:', error.message);
     }
+    
+    const commands = [
+        { command: 'start', description: '🤖 Start bot & get current status' },
+        { command: 'predict', description: '🎯 Get current AI prediction (or WAITING status)' },
+        { command: 'stats', description: '📊 Show last 30 results statistics' },
+        { command: 'history', description: '📜 Show last 10 prediction history' },
+        { command: 'status', description: '🔍 Show AI system status' },
+        { command: 'reset', description: '🔄 Reset AI state (admin only)' }
+    ];
+    
+    try {
+        const url = `https://api.telegram.org/bot${this.botToken}/setMyCommands`;
+        await axios.post(url, { commands });
+        console.log('✅ Telegram bot commands registered');
+    } catch (error) {
+        console.error('❌ Failed to register commands:', error.message);
+    }
+}
     
     /**
      * Send message to Telegram
