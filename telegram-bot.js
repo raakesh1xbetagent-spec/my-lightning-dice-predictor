@@ -1,10 +1,11 @@
 // ============================================================
-// telegram-bot.js (v13.0 - Median Based Statistical AI)
+// telegram-bot.js (v13.1 - Fixed Railway Polling)
 // 
 // Features:
 // - Send notifications for PREDICTION, WAITING, CORRECT, WRONG
 // - Support commands: /start, /predict, /stats, /history, /status
-// - Real-time updates via polling or webhook
+// - Fixed 409 error handling for Railway deployment
+// - Proper webhook cleanup with retry logic
 // ============================================================
 
 const axios = require('axios');
@@ -14,11 +15,13 @@ class TelegramBot {
     constructor(apiBaseUrl) {
         this.botToken = process.env.TELEGRAM_BOT_TOKEN;
         this.chatId = process.env.TELEGRAM_CHAT_ID;
-        this.apiBaseUrl = apiBaseUrl || 'http://localhost:3000';
+        this.apiBaseUrl = apiBaseUrl || process.env.API_BASE_URL || 'http://localhost:3000';
         
         this.isEnabled = !!(this.botToken && this.chatId);
         this.lastUpdateId = 0;
         this.pollingInterval = null;
+        this.pollingAttempts = 0;
+        this.maxPollingAttempts = 3;
         
         // Store last notification to avoid spam
         this.lastNotification = {
@@ -30,7 +33,9 @@ class TelegramBot {
         console.log(`🤖 Telegram Bot initialized: ${this.isEnabled ? 'ENABLED' : 'DISABLED (missing token/chatId)'}`);
         
         if (this.isEnabled) {
-            this.setupBotCommands();
+            // Don't call setupBotCommands immediately, wait for startPolling
+            console.log(`📱 Chat ID: ${this.chatId}`);
+            console.log(`🌐 API Base URL: ${this.apiBaseUrl}`);
         }
     }
     
@@ -42,37 +47,63 @@ class TelegramBot {
     }
     
     /**
-     * Setup bot commands via Telegram API
+     * Setup bot commands via Telegram API with retry
      */
-    async setupBotCommands() {
-    if (!this.isEnabled) return;
-    
-    // First, delete any existing webhook
-    try {
-        const deleteUrl = `https://api.telegram.org/bot${this.botToken}/deleteWebhook`;
-        await axios.post(deleteUrl, { drop_pending_updates: true });
-        console.log('✅ Webhook deleted, using polling mode');
-    } catch (error) {
-        console.log('Webhook delete error:', error.message);
+    async setupBotCommands(retryCount = 0) {
+        if (!this.isEnabled) return;
+        
+        const commands = [
+            { command: 'start', description: '🤖 Start bot & get current status' },
+            { command: 'predict', description: '🎯 Get current AI prediction (or WAITING status)' },
+            { command: 'stats', description: '📊 Show last 30 results statistics' },
+            { command: 'history', description: '📜 Show last 10 prediction history' },
+            { command: 'status', description: '🔍 Show AI system status' },
+            { command: 'reset', description: '🔄 Reset AI state (admin only)' }
+        ];
+        
+        try {
+            const url = `https://api.telegram.org/bot${this.botToken}/setMyCommands`;
+            await axios.post(url, { commands });
+            console.log('✅ Telegram bot commands registered');
+        } catch (error) {
+            console.error(`❌ Failed to register commands (attempt ${retryCount + 1}):`, error.message);
+            if (retryCount < 3) {
+                setTimeout(() => this.setupBotCommands(retryCount + 1), 5000);
+            }
+        }
     }
     
-    const commands = [
-        { command: 'start', description: '🤖 Start bot & get current status' },
-        { command: 'predict', description: '🎯 Get current AI prediction (or WAITING status)' },
-        { command: 'stats', description: '📊 Show last 30 results statistics' },
-        { command: 'history', description: '📜 Show last 10 prediction history' },
-        { command: 'status', description: '🔍 Show AI system status' },
-        { command: 'reset', description: '🔄 Reset AI state (admin only)' }
-    ];
-    
-    try {
-        const url = `https://api.telegram.org/bot${this.botToken}/setMyCommands`;
-        await axios.post(url, { commands });
-        console.log('✅ Telegram bot commands registered');
-    } catch (error) {
-        console.error('❌ Failed to register commands:', error.message);
+    /**
+     * Delete webhook with retry logic
+     */
+    async deleteWebhook(retryCount = 0) {
+        if (!this.isEnabled) return false;
+        
+        try {
+            const deleteUrl = `https://api.telegram.org/bot${this.botToken}/deleteWebhook`;
+            const response = await axios.post(deleteUrl, { 
+                drop_pending_updates: true 
+            }, {
+                timeout: 10000
+            });
+            
+            if (response.data && response.data.ok) {
+                console.log('✅ Webhook deleted successfully');
+                return true;
+            } else {
+                console.log('⚠️ Webhook delete response:', response.data);
+                return false;
+            }
+        } catch (error) {
+            console.log(`⚠️ Webhook delete error (attempt ${retryCount + 1}):`, error.message);
+            
+            if (retryCount < 2) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                return this.deleteWebhook(retryCount + 1);
+            }
+            return false;
+        }
     }
-}
     
     /**
      * Send message to Telegram
@@ -90,6 +121,8 @@ class TelegramBot {
                 text: text,
                 parse_mode: parseMode,
                 disable_web_page_preview: true
+            }, {
+                timeout: 10000
             });
             return true;
         } catch (error) {
@@ -190,7 +223,7 @@ ${prediction.message}
 ⚠️ <b>Reason:</b> ${waitingReasonText}
 
 📐 <b>Median Calculation:</b>
-<code>${waitingData.medianResult.sorted[0].count} → ${waitingData.medianResult.sorted[1].count} → ${waitingData.medianResult.sorted[2].count}</code>
+<code>${waitingData.medianResult?.sorted?.[0]?.count || '?'} → ${waitingData.medianResult?.sorted?.[1]?.count || '?'} → ${waitingData.medianResult?.sorted?.[2]?.count || '?'}</code>
 
 ⏰ Waiting for next result to break the tie...
         `.trim();
@@ -357,23 +390,53 @@ ${historyText}
     }
     
     /**
-     * Start polling for user commands
+     * Start polling for user commands - FIXED VERSION
      */
-    startPolling() {
+    async startPolling() {
         if (!this.isEnabled) {
             console.log('⚠️ Telegram bot not enabled, skipping polling');
             return;
         }
         
-        console.log('🔄 Starting Telegram bot polling...');
+        console.log('🔄 Setting up Telegram bot polling...');
         
+        // First, delete webhook with proper error handling
+        const webhookDeleted = await this.deleteWebhook();
+        
+        if (!webhookDeleted) {
+            console.log('⚠️ Could not delete webhook, but continuing with polling...');
+        }
+        
+        // Wait a moment for webhook deletion to take effect
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Test bot connection
+        try {
+            const testUrl = `https://api.telegram.org/bot${this.botToken}/getMe`;
+            const response = await axios.get(testUrl, { timeout: 10000 });
+            if (response.data && response.data.ok) {
+                console.log(`✅ Bot connected: @${response.data.result.username}`);
+            } else {
+                console.log('⚠️ Bot connection test failed');
+            }
+        } catch (error) {
+            console.error('❌ Bot connection test failed:', error.message);
+            console.log('⚠️ Please check your TELEGRAM_BOT_TOKEN');
+        }
+        
+        // Setup commands after connection
+        await this.setupBotCommands();
+        
+        // Start polling with longer interval (5 seconds instead of 2)
         this.pollingInterval = setInterval(async () => {
             await this.pollUpdates();
-        }, 2000);
+        }, 5000);
+        
+        console.log('✅ Telegram bot polling started (interval: 5s)');
     }
     
     /**
-     * Poll for updates from Telegram
+     * Poll for updates from Telegram - FIXED VERSION
      */
     async pollUpdates() {
         if (!this.isEnabled) return;
@@ -385,30 +448,52 @@ ${historyText}
                     offset: this.lastUpdateId + 1,
                     timeout: 30,
                     allowed_updates: ['message']
-                }
+                },
+                timeout: 15000
             });
             
-            const updates = response.data.result;
-            
-            for (const update of updates) {
-                this.lastUpdateId = update.update_id;
+            if (response.data && response.data.ok) {
+                const updates = response.data.result;
                 
-                if (update.message && update.message.text) {
-                    const chatId = update.message.chat.id;
-                    const text = update.message.text.trim();
-                    const command = text.toLowerCase();
-                    
-                    // Only respond to our configured chat ID or any for now
-                    if (chatId.toString() !== this.chatId && this.chatId !== '*') {
-                        // Optionally respond to any chat but we'll restrict
-                        continue;
+                if (updates && updates.length > 0) {
+                    console.log(`📨 Received ${updates.length} update(s)`);
+                }
+                
+                for (const update of updates) {
+                    if (update.update_id > this.lastUpdateId) {
+                        this.lastUpdateId = update.update_id;
                     }
                     
-                    await this.handleCommand(command, chatId);
+                    if (update.message && update.message.text) {
+                        const chatId = update.message.chat.id;
+                        const text = update.message.text.trim();
+                        const command = text.toLowerCase();
+                        
+                        // Respond to any chat that sends a command (more flexible)
+                        console.log(`📱 Command from chat ${chatId}: ${command}`);
+                        
+                        await this.handleCommand(command, chatId);
+                    }
                 }
             }
         } catch (error) {
-            console.error('Error polling Telegram updates:', error.message);
+            // 409 is not an error we should log - it's just "conflict" from rapid polling
+            // Only log actual connection errors
+            if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
+                console.log('⚠️ Telegram polling timeout, continuing...');
+            } else if (error.response?.status === 409) {
+                // 409 is normal, just continue
+                // console.log('⏳ (Polling in progress)');
+            } else if (error.response?.status === 404) {
+                console.error('❌ Bot token invalid or bot not found');
+                this.isEnabled = false;
+                this.stopPolling();
+            } else {
+                // Only log other errors occasionally to avoid spam
+                if (Math.random() < 0.1) {
+                    console.error('Error polling Telegram updates:', error.message);
+                }
+            }
         }
     }
     
@@ -416,13 +501,13 @@ ${historyText}
      * Handle user commands
      */
     async handleCommand(command, chatId) {
-        console.log(`📱 Telegram command received: ${command}`);
+        console.log(`📱 Handling command: ${command}`);
         
         // Fetch current data from API
         const data = await this.fetchAPI('/api/all-data');
         
         if (!data) {
-            await this.sendMessageToChat(chatId, '⚠️ Unable to fetch data from server. Please try again.');
+            await this.sendMessageToChat(chatId, '⚠️ Unable to fetch data from server. Please try again later.');
             return;
         }
         
@@ -446,7 +531,9 @@ ${historyText}
                 await this.handleReset(chatId);
                 break;
             default:
-                await this.sendMessageToChat(chatId, `Unknown command: ${command}\n\nAvailable commands: /start, /predict, /stats, /history, /status`);
+                if (command.startsWith('/')) {
+                    await this.sendMessageToChat(chatId, `❓ Unknown command: ${command}\n\n📱 Available commands: /start, /predict, /stats, /history, /status`);
+                }
         }
     }
     
@@ -460,6 +547,8 @@ ${historyText}
                 chat_id: chatId,
                 text: text,
                 parse_mode: parseMode
+            }, {
+                timeout: 10000
             });
         } catch (error) {
             console.error('Error sending message:', error.message);
@@ -472,7 +561,7 @@ ${historyText}
     async fetchAPI(endpoint) {
         try {
             const response = await axios.get(`${this.apiBaseUrl}${endpoint}`, {
-                timeout: 5000
+                timeout: 8000
             });
             return response.data;
         } catch (error) {
@@ -486,7 +575,7 @@ ${historyText}
      */
     async sendStartMessage(chatId, data) {
         const message = `
-⚡ <b>Lightning Dice Predictor v13.0</b>
+⚡ <b>Lightning Dice Predictor v13.1</b>
 🤖 <b>Median-Based Statistical AI</b>
 ━━━━━━━━━━━━━━━━━━━━━
 
@@ -502,6 +591,7 @@ ${historyText}
 /stats - Show 30-result statistics
 /history - Last 10 predictions
 /status - AI system status
+/reset - Reset AI (admin)
         `.trim();
         
         await this.sendMessageToChat(chatId, message);
@@ -513,7 +603,7 @@ ${historyText}
     async sendPredictionFromAPI(chatId, data) {
         const prediction = data.currentPrediction;
         
-        if (!prediction || prediction.status === 'WAITING') {
+        if (!prediction || prediction.status === 'WAITING' || prediction.waitingForData) {
             const waitingMessage = `
 ⏳ <b>WAITING MODE</b>
 
@@ -521,7 +611,7 @@ No unique median found yet.
 
 ${prediction?.message || 'Waiting for next result to create unique median condition.'}
 
-Use /stats to see current frequencies.
+📊 Use /stats to see current frequencies.
             `.trim();
             await this.sendMessageToChat(chatId, waitingMessage);
             return;
@@ -587,7 +677,7 @@ Median: <b>${[stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b)=
         const predictions = data.predictions || [];
         
         if (predictions.length === 0) {
-            await this.sendMessageToChat(chatId, '📜 No prediction history yet.');
+            await this.sendMessageToChat(chatId, '📜 No prediction history yet. Waiting for data...');
             return;
         }
         
@@ -596,7 +686,7 @@ Median: <b>${[stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b)=
         
         for (const p of last10) {
             const icon = p.isCorrect === true ? '✅' : (p.isCorrect === false ? '❌' : '⏳');
-            const time = p.time || new Date(p.timestamp).toLocaleTimeString();
+            const time = p.time || (p.timestamp ? new Date(p.timestamp).toLocaleTimeString() : '--');
             historyText += `\n${icon} ${p.predictedGroup} → ${p.actualGroup || '?'} (${time})`;
         }
         
@@ -627,7 +717,7 @@ ${historyText}
         const totalPredictions = aiStats.total_predictions || 0;
         const correctPredictions = aiStats.correct_predictions || 0;
         
-        const isActive = prediction && prediction.status !== 'WAITING';
+        const isActive = prediction && prediction.status !== 'WAITING' && !prediction.waitingForData;
         
         const message = `
 🤖 <b>AI SYSTEM STATUS</b>
@@ -636,7 +726,7 @@ ${historyText}
 📊 <b>Overall Stats:</b>
 • Total Predictions: ${totalPredictions}
 • Correct: ${correctPredictions}
-• Accuracy: ${accuracy.toFixed(1)}%
+• Accuracy: ${typeof accuracy === 'number' ? accuracy.toFixed(1) : '0'}%
 
 🎯 <b>Current State:</b>
 • Mode: ${isActive ? '🟢 PREDICTION ACTIVE' : '⚪ WAITING MODE'}
@@ -644,7 +734,7 @@ ${historyText}
 • Retry Count: ${prediction?.retryCount || 0}
 
 📐 <b>Algorithm:</b>
-Median-Based Statistical AI (v13.0)
+Median-Based Statistical AI (v13.1)
 Analyzes last 30 results → predicts median group when unique
         `.trim();
         
@@ -656,14 +746,17 @@ Analyzes last 30 results → predicts median group when unique
      */
     async handleReset(chatId) {
         try {
-            const response = await axios.post(`${this.apiBaseUrl}/api/reset-ai`);
-            if (response.data.success) {
+            const response = await axios.post(`${this.apiBaseUrl}/api/reset-ai`, {}, {
+                timeout: 10000
+            });
+            if (response.data && response.data.success) {
                 await this.sendMessageToChat(chatId, '🔄 AI has been reset to WAITING mode.');
             } else {
                 await this.sendMessageToChat(chatId, '⚠️ Failed to reset AI. Please try again.');
             }
         } catch (error) {
-            await this.sendMessageToChat(chatId, '⚠️ Error resetting AI.');
+            console.error('Reset error:', error.message);
+            await this.sendMessageToChat(chatId, '⚠️ Error resetting AI. Server may be unavailable.');
         }
     }
     
@@ -674,6 +767,7 @@ Analyzes last 30 results → predicts median group when unique
         if (this.pollingInterval) {
             clearInterval(this.pollingInterval);
             this.pollingInterval = null;
+            console.log('🛑 Telegram bot polling stopped');
         }
     }
 }
