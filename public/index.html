@@ -1,1 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="Lightning Dice Predictor - Median-Based Statistical AI v13.0">
+    <title>Lightning Dice Predictor - Median AI v13.0</title>
+    <link rel="stylesheet" href="/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* Additional styles for v13.0 Median Based AI */
+        .median-stats-panel {
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+            padding: 12px;
+            margin-top: 10px;
+        }
+        
+        .median-title {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        
+        .median-bars {
+            display: flex;
+            height: 28px;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        
+        .median-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            font-weight: 600;
+            color: #1a1a2e;
+            transition: width 0.3s ease;
+        }
+        
+        .low-bar { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .medium-bar { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
+        .high-bar { background: linear-gradient(135deg, #4ade80, #22c55e); }
+        
+        .last30-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+        
+        .group-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .group-chip.low { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .group-chip.medium { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .group-chip.high { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+        
+        .median-card {
+            background: rgba(0,0,0,0.2);
+            border-radius: 12px;
+            padding: 10px 15px;
+            text-align: center;
+        }
+        
+        .median-value-large {
+            font-size: 32px;
+            font-weight: 800;
+            color: #fbbf24;
+        }
+        
+        .median-prediction {
+            color: #fbbf24;
+            font-weight: 700;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .frequency-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+        
+        .frequency-label {
+            font-weight: 600;
+        }
+        
+        .frequency-bar-container {
+            flex: 1;
+            margin-left: 10px;
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        .frequency-bar {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+        
+        .info-badge {
+            display: inline-block;
+            background: rgba(251, 191, 36, 0.15);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+        
+        .badge-median {
+            background: rgba(139, 92, 246, 0.2);
+            color: #a78bfa;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        
+        .median-info-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .median-info-item {
+            text-align: center;
+            padding: 8px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+        }
+        
+        .median-info-label {
+            font-size: 9px;
+            opacity: 0.6;
+        }
+        
+        .median-info-value {
+            font-size: 18px;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <span class="lightning-icon">⚡</span>
+                <h1>Lightning Dice Predictor</h1>
+                <span class="version-badge">v13.0 - MEDIAN AI</span>
+            </div>
+            <div class="header-buttons">
+                <div class="status-badge" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span id="statusText">Connecting...</span>
+                </div>
+            </div>
+        </header>
 
+        <div id="errorMessage" class="error-message" style="display: none;"></div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Rounds</div>
+                <div class="stat-value" id="totalRounds">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Average Result</div>
+                <div class="stat-value" id="avgResult">0.00</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Most Active Group</div>
+                <div class="stat-value" id="mostActiveGroup">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Lightning Boost</div>
+                <div class="stat-value" id="lightningBoost">0%</div>
+            </div>
+        </div>
+
+        <!-- ============ MEDIAN BASED AI PREDICTION SECTION ============ -->
+        <div class="prediction-section">
+            <h2>📊 MEDIAN-BASED STATISTICAL AI v13.0</h2>
+            
+            <div class="pattern-info-bar">
+                <div class="info-item">
+                    <span class="info-label">📐 Last 30 Results:</span>
+                    <div class="info-value" id="last30Groups">--</div>
+                    <span class="info-badge" id="last30Count">0/30</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">🔬 AI Status:</span>
+                    <span class="info-value" id="predictionStatus">Checking...</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">🎯 Active System:</span>
+                    <span class="info-value" id="activeModelDisplay">--</span>
+                </div>
+            </div>
+
+            <!-- Median Analysis Card -->
+            <div class="median-card" style="margin-bottom: 20px;">
+                <div style="font-size: 12px; opacity: 0.7;">📐 Median Frequency Analysis</div>
+                <div class="median-info-grid">
+                    <div class="median-info-item">
+                        <div class="median-info-label">LOW</div>
+                        <div class="median-info-value" id="lowCount">--</div>
+                    </div>
+                    <div class="median-info-item">
+                        <div class="median-info-label">MEDIUM</div>
+                        <div class="median-info-value" id="mediumCount">--</div>
+                    </div>
+                    <div class="median-info-item">
+                        <div class="median-info-label">HIGH</div>
+                        <div class="median-info-value" id="highCount">--</div>
+                    </div>
+                </div>
+                <div class="frequency-row">
+                    <span class="frequency-label">📊 Frequencies:</span>
+                    <span id="frequencies">-- → -- → --</span>
+                </div>
+                <div class="frequency-row">
+                    <span class="frequency-label">🎯 Median Value:</span>
+                    <strong id="medianValue">--</strong>
+                </div>
+                <div class="frequency-row">
+                    <span class="frequency-label">🔮 Median Group:</span>
+                    <strong id="medianGroup">--</strong>
+                </div>
+            </div>
+
+            <!-- Pattern Table (Simplified) -->
+            <div class="pattern-table">
+                <div class="pattern-header">
+                    <div class="col-pattern">Analysis</div>
+                    <div class="col-protection">System</div>
+                    <div class="col-prediction">Prediction</div>
+                    <div class="col-confidence">Confidence</div>
+                    <div class="col-description">Description</div>
+                </div>
+                
+                <div class="pattern-row" id="patternRow">
+                    <div class="col-pattern" id="patternName">30-Result Median</div>
+                    <div class="col-protection" id="protectionType">MEDIAN AI</div>
+                    <div class="col-prediction" id="predictionGroup">--</div>
+                    <div class="col-confidence" id="predictionConfidence">--%</div>
+                    <div class="col-description" id="patternDescription">--</div>
+                </div>
+            </div>
+
+            <!-- Final Prediction Card -->
+            <div class="final-prediction-card">
+                <div class="final-header">
+                    <span class="final-icon">🏆</span>
+                    <span class="final-title">AI FINAL PREDICTION</span>
+                    <span class="final-vote" id="predictionType">(Median-Based AI)</span>
+                </div>
+                <div class="final-group" id="finalGroup">
+                    <span class="final-group-icon" id="finalIcon">🎯</span>
+                    <span class="final-group-name" id="finalName">--</span>
+                    <span class="final-group-range" id="finalRange">--</span>
+                </div>
+                <div class="final-confidence">
+                    <div class="confidence-meter">
+                        <div class="confidence-fill" id="confidenceFill" style="width: 0%"></div>
+                    </div>
+                    <span class="confidence-text" id="finalConfidence">0%</span>
+                </div>
+                <div class="final-explanation" id="finalExplanation">Waiting for 30 results to analyze frequencies...</div>
+                <div class="final-weights" id="finalWeights"></div>
+            </div>
+        </div>
+
+        <!-- ============ HOW IT WORKS ============ -->
+        <div class="patterns-reference">
+            <div class="section-header">
+                <h2>📚 How Median-Based AI Works</h2>
+            </div>
+            <div class="patterns-grid">
+                <div class="pattern-card">
+                    <div class="pattern-3step">📊 Step 1: Collect Data</div>
+                    <div class="pattern-actions">Analyzes last 30 game results</div>
+                </div>
+                <div class="pattern-card">
+                    <div class="pattern-3step">📐 Step 2: Count Frequencies</div>
+                    <div class="pattern-actions">Count LOW, MEDIUM, HIGH occurrences</div>
+                </div>
+                <div class="pattern-card">
+                    <div class="pattern-3step">🎯 Step 3: Find Median</div>
+                    <div class="pattern-actions">Sort counts → pick middle value → identify group</div>
+                </div>
+                <div class="pattern-card">
+                    <div class="pattern-3step">✅ Step 4: Check Uniqueness</div>
+                    <div class="pattern-actions">If median is UNIQUE → PREDICT that group</div>
+                </div>
+                <div class="pattern-card">
+                    <div class="pattern-3step">⏳ Step 5: Handle Ties</div>
+                    <div class="pattern-actions">If counts duplicate or equal → WAITING mode</div>
+                </div>
+                <div class="pattern-card">
+                    <div class="pattern-3step">🔄 Step 6: Retry System</div>
+                    <div class="pattern-actions">Wrong prediction? Recalculate median with updated data</div>
+                </div>
+            </div>
+            <div class="pattern-note">
+                💡 <strong>Why Median-Based?</strong><br>
+                📊 Median is resistant to outliers and represents the central tendency.<br>
+                🎯 Prediction only when median is UNIQUE (no ties) for highest reliability.<br>
+                ⏳ WAITING mode ensures we don't predict during uncertain conditions.<br>
+                🔄 Dynamic retry: After wrong prediction, recalculates median with new data.
+            </div>
+        </div>
+
+        <!-- Group Statistics -->
+        <div class="group-stats">
+            <div class="group-stat low-group">
+                <div class="group-header">
+                    <span class="group-icon">🔴</span>
+                    <span class="group-title">LOW</span>
+                    <span class="group-range">(3-9)</span>
+                </div>
+                <div class="group-probability" id="lowProb">0%</div>
+                <div class="group-trend" id="lowTrend">-</div>
+            </div>
+            <div class="group-stat medium-group">
+                <div class="group-header">
+                    <span class="group-icon">🟡</span>
+                    <span class="group-title">MEDIUM</span>
+                    <span class="group-range">(10-11)</span>
+                </div>
+                <div class="group-probability" id="mediumProb">0%</div>
+                <div class="group-trend" id="mediumTrend">-</div>
+            </div>
+            <div class="group-stat high-group">
+                <div class="group-header">
+                    <span class="group-icon">🟢</span>
+                    <span class="group-title">HIGH</span>
+                    <span class="group-range">(12-18)</span>
+                </div>
+                <div class="group-probability" id="highProb">0%</div>
+                <div class="group-trend" id="highTrend">-</div>
+            </div>
+        </div>
+
+        <!-- Prediction History -->
+        <div class="history-section">
+            <div class="section-header">
+                <h2>📋 PREDICTION HISTORY</h2>
+                <button class="refresh-btn" id="refreshBtn">🔄 Refresh</button>
+            </div>
+            <div class="table-container">
+                <table class="history-table" id="historyTable">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Dice</th>
+                            <th>Total</th>
+                            <th>Analysis</th>
+                            <th>System</th>
+                            <th>Prediction</th>
+                            <th>Result</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody">
+                        <tr><td colspan="7">Loading history......</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="pagination-controls">
+                <button class="pagination-btn" id="prevPageBtn" disabled>◀ Previous</button>
+                <span class="pagination-info" id="paginationInfo">Page 1 of 1</span>
+                <button class="pagination-btn" id="nextPageBtn" disabled>Next ▶</button>
+            </div>
+        </div>
+
+        <!-- Recent Results -->
+        <div class="recent-section">
+            <div class="section-header">
+                <h2>📊 Recent Results</h2>
+            </div>
+            <div class="results-grid" id="resultsGrid">
+                <div class="loading">Loading results...</div>
+            </div>
+        </div>
+
+        <!-- Number Statistics -->
+        <div class="stats-section collapsible-section">
+            <div class="stats-header" id="statsHeader">
+                <h2>📈 Number Statistics</h2>
+                <span class="toggle-icon" id="toggleIcon">▶</span>
+            </div>
+            <div class="stats-content" id="statsContent" style="display: none;">
+                <div class="table-container">
+                    <table class="stats-table" id="statsTable">
+                        <thead>
+                            <tr><th>Number</th><th>Group</th><th>Frequency</th><th>Percentage</th><th>Last Seen</th></tr>
+                        </thead>
+                        <tbody id="statsTableBody">
+                            <tr><td colspan="5">Loading statistics...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Auto Refresh Control -->
+        <div class="auto-refresh-control">
+            <label class="switch">
+                <input type="checkbox" id="autoRefreshToggle" checked>
+                <span class="slider round"></span>
+            </label>
+            <span>Auto Refresh (3s)</span>
+            <span class="refresh-timer" id="refreshTimer">3s</span>
+        </div>
+    </div>
+
+    <script src="/script.js"></script>
+</body>
+</html>
