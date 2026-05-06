@@ -287,7 +287,8 @@ function getResultsData(limit = 100) {
 
 function getLast30Results() {
     return new Promise((resolve) => {
-        db.all(`SELECT total, group_name as group, timestamp 
+        // FIXED: Using 'group_name' instead of 'group as group' (group is SQL keyword)
+        db.all(`SELECT total, group_name, timestamp 
                 FROM results ORDER BY timestamp DESC LIMIT 30`, (err, rows) => {
             if (err) {
                 console.error('Error in getLast30Results:', err);
@@ -295,7 +296,7 @@ function getLast30Results() {
             } else {
                 const formatted = (rows || []).map(row => ({
                     total: row.total,
-                    group: row.group,
+                    group: row.group_name,  // Use group_name from result
                     timestamp: row.timestamp
                 }));
                 // Return in chronological order (oldest first for AI)
