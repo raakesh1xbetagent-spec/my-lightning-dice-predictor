@@ -1,24 +1,28 @@
 // ============================================================
-// new-ai-logic.js (v13.0 - MEDIAN BASED STATISTICAL AI)
+// new-ai-logic.js (v14.0 - TRIPLE PREDICTOR AI)
 // 
 // Core Logic:
 // - Takes last 30 results
 // - Counts frequency of LOW, MEDIUM, HIGH
-// - Finds median of [LOW_count, MEDIUM_count, HIGH_count]
-// - Prediction ONLY when median is UNIQUE
-// - WAITING when duplicate or all equal
-// - Retry: Recalculate median with updated data on wrong prediction
+// - THREE PREDICTORS:
+//   1. MEDIAN: Finds median of [LOW_count, MEDIUM_count, HIGH_count]
+//   2. HIGH-VOLUME: Predicts group with HIGHEST frequency
+//   3. LOW-VOLUME: Predicts group with LOWEST frequency
+// - WAITING when median is duplicate or all equal (ALL predictors WAIT)
+// - Retry: Shared retry count for all predictors
 // ============================================================
 
 class MedianBasedAI {
     constructor() {
-        this.version = "13.0";
-        this.name = "Median-Based Statistical AI";
+        this.version = "14.0";
+        this.name = "Triple Predictor Statistical AI";
         
-        // AI State
+        // AI State (shared for all predictors)
         this.isActive = false;           // Currently in prediction mode?
-        this.currentPrediction = null;    // Current predicted group (LOW/MEDIUM/HIGH)
-        this.consecutiveWrongCount = 0;   // How many wrong predictions in a row
+        this.currentMedianPrediction = null;    // MEDIAN predictor
+        this.currentHighVolPrediction = null;   // HIGH-VOLUME predictor
+        this.currentLowVolPrediction = null;    // LOW-VOLUME predictor
+        this.consecutiveWrongCount = 0;   // How many wrong predictions in a row (shared)
         this.totalPredictions = 0;
         this.correctPredictions = 0;
         this.accuracy = 0;
@@ -33,14 +37,18 @@ class MedianBasedAI {
         this.medianValue = null;
         this.medianGroup = null;
         
-        // Waiting state tracking
+        // Waiting state tracking (shared for all predictors)
         this.waitingReason = null;  // "DUPLICATE_MEDIAN" or "INSUFFICIENT_DATA" or "EQUAL_ALL"
         
         // Stats
         this.patternHistory = [];
         
         console.log(`🤖 ${this.name} v${this.version} initialized`);
-        console.log(`📊 Core Logic: 30-result median-based prediction with WAITING on duplicates`);
+        console.log(`📊 Core Logic: 30-result analysis with THREE predictors`);
+        console.log(`   1. MEDIAN (unique median prediction)`);
+        console.log(`   2. HIGH-VOLUME (most frequent group)`);
+        console.log(`   3. LOW-VOLUME (least frequent group)`);
+        console.log(`⏳ WAITING condition affects ALL THREE predictors`);
     }
     
     /**
@@ -113,7 +121,60 @@ class MedianBasedAI {
     }
     
     /**
-     * Determine if we should wait or predict
+     * Get HIGH-VOLUME prediction (most frequent group)
+     */
+    getHighVolumePrediction(frequencies) {
+        const values = [
+            { group: 'LOW', count: frequencies.LOW },
+            { group: 'MEDIUM', count: frequencies.MEDIUM },
+            { group: 'HIGH', count: frequencies.HIGH }
+        ];
+        
+        // Sort by count descending
+        const sorted = [...values].sort((a, b) => b.count - a.count);
+        const highestCount = sorted[0].count;
+        
+        // Check for ties in highest count
+        const ties = values.filter(v => v.count === highestCount);
+        const isUnique = ties.length === 1;
+        
+        return {
+            predictedGroup: isUnique ? sorted[0].group : null,
+            count: highestCount,
+            isUnique: isUnique,
+            message: isUnique ? `HIGH-VOLUME: Predicting ${sorted[0].group} (most frequent: ${highestCount} occurrences)` : `HIGH-VOLUME: TIE - waiting`
+        };
+    }
+    
+    /**
+     * Get LOW-VOLUME prediction (least frequent group)
+     */
+    getLowVolumePrediction(frequencies) {
+        const values = [
+            { group: 'LOW', count: frequencies.LOW },
+            { group: 'MEDIUM', count: frequencies.MEDIUM },
+            { group: 'HIGH', count: frequencies.HIGH }
+        ];
+        
+        // Sort by count ascending
+        const sorted = [...values].sort((a, b) => a.count - b.count);
+        const lowestCount = sorted[0].count;
+        
+        // Check for ties in lowest count
+        const ties = values.filter(v => v.count === lowestCount);
+        const isUnique = ties.length === 1;
+        
+        return {
+            predictedGroup: isUnique ? sorted[0].group : null,
+            count: lowestCount,
+            isUnique: isUnique,
+            message: isUnique ? `LOW-VOLUME: Predicting ${sorted[0].group} (least frequent: ${lowestCount} occurrences)` : `LOW-VOLUME: TIE - waiting`
+        };
+    }
+    
+    /**
+     * Determine if we should wait or predict (SHARED for ALL predictors)
+     * Based on MEDIAN uniqueness (as per original logic)
      */
     shouldWait(medianResult) {
         if (!medianResult.isUnique) {
@@ -179,99 +240,7 @@ class MedianBasedAI {
     }
     
     /**
-     * MAIN PREDICTION FUNCTION
-     * @param {Array} last30Results - Array of last 30 results (each with .group or .total)
-     * @returns {Object} Prediction result
-     */
-    predict(last30Results) {
-        // Update frequencies
-        const frequencies = this.updateFrequencies(last30Results);
-        
-        // Get last 10 for trend analysis
-        const last10Results = this.last30Results.slice(-10);
-        
-        // Calculate median
-        const medianResult = this.calculateMedian(frequencies);
-        this.medianValue = medianResult.medianValue;
-        this.medianGroup = medianResult.medianGroup;
-        
-        // Get formatted stats for UI
-        const formattedStats = this.getFormattedStats(frequencies, last10Results);
-        
-        // Check if we should wait
-        if (this.shouldWait(medianResult)) {
-            // If we were in active prediction mode, deactivate
-            if (this.isActive) {
-                console.log(`⚠️ WAITING condition met, deactivating prediction mode`);
-                this.isActive = false;
-                this.currentPrediction = null;
-            }
-            
-            return {
-                status: "WAITING",
-                waitingReason: this.waitingReason,
-                frequencies: frequencies,
-                stats: formattedStats,
-                medianResult: medianResult,
-                predictedGroup: null,
-                confidence: 0,
-                message: `WAITING: ${this.getWaitingMessage()}`,
-                waitingForData: true,
-                last30Count: this.last30Results.length,
-                isRetry: false,
-                retryCount: 0
-            };
-        }
-        
-        // We have a unique median - make prediction
-        const predictedGroup = medianResult.medianGroup;
-        const confidence = this.calculateConfidence(frequencies, medianResult);
-        
-        // Check if this is a retry (same as previous prediction)
-        const isRetry = (this.isActive && this.currentPrediction === predictedGroup);
-        const retryCount = isRetry ? this.consecutiveWrongCount : 0;
-        
-        // Update state
-        if (!this.isActive) {
-            // New prediction mode starting
-            this.isActive = true;
-            this.currentPrediction = predictedGroup;
-            this.consecutiveWrongCount = 0;
-            console.log(`🎯 ACTIVATING PREDICTION MODE: Predicting ${predictedGroup} (Median=${medianResult.medianValue})`);
-        } else if (this.currentPrediction !== predictedGroup) {
-            // Prediction changed
-            console.log(`🔄 Prediction changed from ${this.currentPrediction} to ${predictedGroup}`);
-            this.currentPrediction = predictedGroup;
-            this.consecutiveWrongCount = 0;
-        } else {
-            // Same prediction (retry scenario)
-            console.log(`🔄 RETAINING prediction: ${predictedGroup} (Retry #${this.consecutiveWrongCount + 1})`);
-        }
-        
-        const prediction = {
-            status: "PREDICTION_READY",
-            predictedGroup: predictedGroup,
-            medianValue: medianResult.medianValue,
-            medianGroup: medianResult.medianGroup,
-            frequencies: frequencies,
-            stats: formattedStats,
-            confidence: confidence,
-            waitingForData: false,
-            isRetry: isRetry,
-            retryCount: this.consecutiveWrongCount,
-            message: this.getPredictionMessage(predictedGroup, medianResult, isRetry, this.consecutiveWrongCount),
-            last30Count: this.last30Results.length,
-            medianCalculation: medianResult.sorted
-        };
-        
-        // Record prediction
-        this.recordPrediction(prediction);
-        
-        return prediction;
-    }
-    
-    /**
-     * Calculate confidence based on frequency spread
+     * Calculate confidence for MEDIAN predictor
      */
     calculateConfidence(frequencies, medianResult) {
         const values = [frequencies.LOW, frequencies.MEDIUM, frequencies.HIGH];
@@ -291,24 +260,209 @@ class MedianBasedAI {
     }
     
     /**
-     * Update AI with actual result
+     * Calculate confidence for HIGH-VOLUME predictor
+     */
+    calculateHighVolConfidence(frequencies, highVolResult) {
+        if (!highVolResult.isUnique) return 0;
+        
+        const total = frequencies.LOW + frequencies.MEDIUM + frequencies.HIGH;
+        const percentage = (highVolResult.count / total) * 100;
+        
+        let confidence = 40 + (percentage - 33.3) * 1.2;
+        confidence = Math.min(85, Math.max(30, confidence));
+        
+        return Math.round(confidence);
+    }
+    
+    /**
+     * Calculate confidence for LOW-VOLUME predictor
+     */
+    calculateLowVolConfidence(frequencies, lowVolResult) {
+        if (!lowVolResult.isUnique) return 0;
+        
+        const total = frequencies.LOW + frequencies.MEDIUM + frequencies.HIGH;
+        const percentage = (lowVolResult.count / total) * 100;
+        
+        // Lower frequency = lower confidence for contrarian bets
+        let confidence = 35 + (33.3 - percentage) * 0.8;
+        confidence = Math.min(75, Math.max(25, confidence));
+        
+        return Math.round(confidence);
+    }
+    
+    /**
+     * MAIN PREDICTION FUNCTION - Returns ALL THREE predictions
+     * @param {Array} last30Results - Array of last 30 results (each with .group or .total)
+     * @returns {Object} Prediction result with all three predictors
+     */
+    predict(last30Results) {
+        // Update frequencies
+        const frequencies = this.updateFrequencies(last30Results);
+        
+        // Get last 10 for trend analysis
+        const last10Results = this.last30Results.slice(-10);
+        
+        // Calculate median
+        const medianResult = this.calculateMedian(frequencies);
+        this.medianValue = medianResult.medianValue;
+        this.medianGroup = medianResult.medianGroup;
+        
+        // Get HIGH-VOLUME and LOW-VOLUME predictions
+        const highVolResult = this.getHighVolumePrediction(frequencies);
+        const lowVolResult = this.getLowVolumePrediction(frequencies);
+        
+        // Get formatted stats for UI
+        const formattedStats = this.getFormattedStats(frequencies, last10Results);
+        
+        // Check if we should wait (SHARED condition based on MEDIAN)
+        if (this.shouldWait(medianResult)) {
+            // If we were in active prediction mode, deactivate ALL
+            if (this.isActive) {
+                console.log(`⚠️ WAITING condition met, deactivating ALL prediction modes`);
+                this.isActive = false;
+                this.currentMedianPrediction = null;
+                this.currentHighVolPrediction = null;
+                this.currentLowVolPrediction = null;
+            }
+            
+            return {
+                status: "WAITING",
+                waitingReason: this.waitingReason,
+                frequencies: frequencies,
+                stats: formattedStats,
+                medianResult: medianResult,
+                // ALL three predictors are WAITING
+                median: {
+                    status: "WAITING",
+                    predictedGroup: null,
+                    confidence: 0,
+                    message: `WAITING: ${this.getWaitingMessage()}`
+                },
+                highVolume: {
+                    status: "WAITING",
+                    predictedGroup: null,
+                    confidence: 0,
+                    message: `WAITING: Median condition not met`
+                },
+                lowVolume: {
+                    status: "WAITING",
+                    predictedGroup: null,
+                    confidence: 0,
+                    message: `WAITING: Median condition not met`
+                },
+                waitingForData: true,
+                last30Count: this.last30Results.length,
+                isRetry: false,
+                retryCount: 0
+            };
+        }
+        
+        // NOT WAITING - make ALL THREE predictions
+        
+        // 1. MEDIAN prediction
+        const medianPredictedGroup = medianResult.medianGroup;
+        const medianConfidence = this.calculateConfidence(frequencies, medianResult);
+        
+        // 2. HIGH-VOLUME prediction
+        const highVolPredictedGroup = highVolResult.isUnique ? highVolResult.predictedGroup : null;
+        const highVolConfidence = highVolResult.isUnique ? this.calculateHighVolConfidence(frequencies, highVolResult) : 0;
+        
+        // 3. LOW-VOLUME prediction
+        const lowVolPredictedGroup = lowVolResult.isUnique ? lowVolResult.predictedGroup : null;
+        const lowVolConfidence = lowVolResult.isUnique ? this.calculateLowVolConfidence(frequencies, lowVolResult) : 0;
+        
+        // Check if this is a retry (shared for all)
+        const isRetry = (this.isActive && this.currentMedianPrediction === medianPredictedGroup);
+        const retryCount = isRetry ? this.consecutiveWrongCount : 0;
+        
+        // Update state
+        if (!this.isActive) {
+            // New prediction mode starting
+            this.isActive = true;
+            this.currentMedianPrediction = medianPredictedGroup;
+            this.currentHighVolPrediction = highVolPredictedGroup;
+            this.currentLowVolPrediction = lowVolPredictedGroup;
+            this.consecutiveWrongCount = 0;
+            console.log(`🎯 ACTIVATING PREDICTION MODE:`);
+            console.log(`   MEDIAN: ${medianPredictedGroup} (Median=${medianResult.medianValue})`);
+            console.log(`   HIGH-VOLUME: ${highVolPredictedGroup} (Count=${highVolResult.count})`);
+            console.log(`   LOW-VOLUME: ${lowVolPredictedGroup} (Count=${lowVolResult.count})`);
+        } else if (this.currentMedianPrediction !== medianPredictedGroup) {
+            // Median prediction changed
+            console.log(`🔄 MEDIAN prediction changed from ${this.currentMedianPrediction} to ${medianPredictedGroup}`);
+            this.currentMedianPrediction = medianPredictedGroup;
+            this.currentHighVolPrediction = highVolPredictedGroup;
+            this.currentLowVolPrediction = lowVolPredictedGroup;
+            this.consecutiveWrongCount = 0;
+        } else {
+            // Same predictions (retry scenario)
+            console.log(`🔄 RETAINING predictions (Retry #${this.consecutiveWrongCount + 1})`);
+        }
+        
+        const prediction = {
+            status: "PREDICTION_READY",
+            waitingReason: null,
+            frequencies: frequencies,
+            stats: formattedStats,
+            medianResult: medianResult,
+            // ALL THREE predictions
+            median: {
+                status: "ACTIVE",
+                predictedGroup: medianPredictedGroup,
+                confidence: medianConfidence,
+                message: this.getPredictionMessage(medianPredictedGroup, medianResult, isRetry, this.consecutiveWrongCount)
+            },
+            highVolume: {
+                status: highVolResult.isUnique ? "ACTIVE" : "TIE",
+                predictedGroup: highVolPredictedGroup,
+                confidence: highVolConfidence,
+                count: highVolResult.count,
+                message: highVolResult.message
+            },
+            lowVolume: {
+                status: lowVolResult.isUnique ? "ACTIVE" : "TIE",
+                predictedGroup: lowVolPredictedGroup,
+                confidence: lowVolConfidence,
+                count: lowVolResult.count,
+                message: lowVolResult.message
+            },
+            waitingForData: false,
+            isRetry: isRetry,
+            retryCount: this.consecutiveWrongCount,
+            last30Count: this.last30Results.length,
+            medianCalculation: medianResult.sorted
+        };
+        
+        // Record prediction
+        this.recordPrediction(prediction);
+        
+        return prediction;
+    }
+    
+    /**
+     * Update AI with actual result (SHARED retry system)
+     * Checks which predictions were correct (MEDIAN only for activation)
      */
     updateWithResult(actualGroup, newResults) {
         const wasActive = this.isActive;
-        const wasPredicting = this.currentPrediction;
+        const wasMedianPrediction = this.currentMedianPrediction;
+        const wasHighVolPrediction = this.currentHighVolPrediction;
+        const wasLowVolPrediction = this.currentLowVolPrediction;
         const wasWrongCount = this.consecutiveWrongCount;
         
-        // Check if prediction was correct
-        const isCorrect = (this.currentPrediction === actualGroup);
+        // Check MEDIAN prediction correctness (this determines activation)
+        const isMedianCorrect = (this.currentMedianPrediction === actualGroup);
         
         this.totalPredictions++;
-        if (isCorrect) {
+        if (isMedianCorrect) {
             this.correctPredictions++;
-            console.log(`✅ CORRECT PREDICTION! ${this.currentPrediction} → ${actualGroup}`);
+            console.log(`✅ CORRECT MEDIAN PREDICTION! ${this.currentMedianPrediction} → ${actualGroup}`);
             
             // Reset state
             this.isActive = false;
-            this.currentPrediction = null;
+            this.currentMedianPrediction = null;
+            this.currentHighVolPrediction = null;
+            this.currentLowVolPrediction = null;
             this.consecutiveWrongCount = 0;
             
             // Update accuracy
@@ -316,34 +470,47 @@ class MedianBasedAI {
             
             return {
                 isCorrect: true,
-                predictedGroup: wasPredicting,
+                medianCorrect: true,
+                highVolCorrect: (wasHighVolPrediction === actualGroup),
+                lowVolCorrect: (wasLowVolPrediction === actualGroup),
+                predictedGroups: {
+                    median: wasMedianPrediction,
+                    highVolume: wasHighVolPrediction,
+                    lowVolume: wasLowVolPrediction
+                },
                 actualGroup: actualGroup,
                 wasRetry: wasWrongCount > 0,
                 retryCount: wasWrongCount,
                 newAccuracy: this.accuracy,
                 resetMode: true,
-                message: `✅ Correct! Reset to WAITING mode.`
+                message: `✅ Median correct! Reset to WAITING mode.`
             };
         } else {
-            // Wrong prediction
+            // Wrong MEDIAN prediction (shared retry)
             this.consecutiveWrongCount++;
-            console.log(`❌ WRONG PREDICTION! ${this.currentPrediction} → ${actualGroup} (Wrong count: ${this.consecutiveWrongCount})`);
-            
-            // Keep active mode, but prediction will be recalculated on next call
-            // Note: We don't change currentPrediction here - it will be recalculated
-            // when predict() is called again with updated data
+            console.log(`❌ WRONG MEDIAN PREDICTION! ${this.currentMedianPrediction} → ${actualGroup}`);
+            console.log(`   HIGH-VOLUME: ${wasHighVolPrediction} (${wasHighVolPrediction === actualGroup ? '✓' : '✗'})`);
+            console.log(`   LOW-VOLUME: ${wasLowVolPrediction} (${wasLowVolPrediction === actualGroup ? '✓' : '✗'})`);
+            console.log(`   Shared Wrong count: ${this.consecutiveWrongCount}`);
             
             this.accuracy = (this.correctPredictions / this.totalPredictions) * 100;
             
             return {
                 isCorrect: false,
-                predictedGroup: wasPredicting,
+                medianCorrect: false,
+                highVolCorrect: (wasHighVolPrediction === actualGroup),
+                lowVolCorrect: (wasLowVolPrediction === actualGroup),
+                predictedGroups: {
+                    median: wasMedianPrediction,
+                    highVolume: wasHighVolPrediction,
+                    lowVolume: wasLowVolPrediction
+                },
                 actualGroup: actualGroup,
                 wasRetry: wasWrongCount > 0,
                 retryCount: this.consecutiveWrongCount,
                 newAccuracy: this.accuracy,
                 keepActive: true,
-                message: `❌ Wrong! Retaining prediction mode. Retry #${this.consecutiveWrongCount}`
+                message: `❌ Median wrong! Shared retry #${this.consecutiveWrongCount}`
             };
         }
     }
@@ -363,7 +530,7 @@ class MedianBasedAI {
     }
     
     /**
-     * Get prediction message
+     * Get prediction message for MEDIAN
      */
     getPredictionMessage(predictedGroup, medianResult, isRetry, retryCount) {
         const retryText = isRetry ? ` (Retry #${retryCount + 1} after wrong prediction)` : '';
@@ -395,7 +562,9 @@ class MedianBasedAI {
             version: this.version,
             name: this.name,
             isActive: this.isActive,
-            currentPrediction: this.currentPrediction,
+            currentMedianPrediction: this.currentMedianPrediction,
+            currentHighVolPrediction: this.currentHighVolPrediction,
+            currentLowVolPrediction: this.currentLowVolPrediction,
             consecutiveWrongCount: this.consecutiveWrongCount,
             totalPredictions: this.totalPredictions,
             correctPredictions: this.correctPredictions,
@@ -431,7 +600,9 @@ class MedianBasedAI {
     reset() {
         console.log(`🔄 Resetting AI state...`);
         this.isActive = false;
-        this.currentPrediction = null;
+        this.currentMedianPrediction = null;
+        this.currentHighVolPrediction = null;
+        this.currentLowVolPrediction = null;
         this.consecutiveWrongCount = 0;
         this.waitingReason = null;
         this.medianValue = null;
@@ -455,7 +626,9 @@ class MedianBasedAI {
             patternHistory: this.patternHistory.slice(0, 100),
             lastState: {
                 isActive: this.isActive,
-                currentPrediction: this.currentPrediction,
+                currentMedianPrediction: this.currentMedianPrediction,
+                currentHighVolPrediction: this.currentHighVolPrediction,
+                currentLowVolPrediction: this.currentLowVolPrediction,
                 consecutiveWrongCount: this.consecutiveWrongCount
             }
         };
@@ -478,7 +651,9 @@ class MedianBasedAI {
         
         if (state.lastState) {
             this.isActive = state.lastState.isActive || false;
-            this.currentPrediction = state.lastState.currentPrediction || null;
+            this.currentMedianPrediction = state.lastState.currentMedianPrediction || null;
+            this.currentHighVolPrediction = state.lastState.currentHighVolPrediction || null;
+            this.currentLowVolPrediction = state.lastState.currentLowVolPrediction || null;
             this.consecutiveWrongCount = state.lastState.consecutiveWrongCount || 0;
         }
         
@@ -496,7 +671,9 @@ class MedianBasedAI {
             correctPredictions: this.correctPredictions,
             accuracy: this.accuracy,
             isActive: this.isActive,
-            currentPrediction: this.currentPrediction,
+            currentMedianPrediction: this.currentMedianPrediction,
+            currentHighVolPrediction: this.currentHighVolPrediction,
+            currentLowVolPrediction: this.currentLowVolPrediction,
             consecutiveWrongCount: this.consecutiveWrongCount,
             waitingReason: this.waitingReason,
             currentFrequencies: this.currentFrequencies
