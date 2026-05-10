@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <meta name="description" content="Lightning Dice Predictor - Median-Based Statistical AI v13.0">
-    <title>Lightning Dice Predictor - Median AI v13.0</title>
+    <meta name="description" content="Lightning Dice Predictor - Triple Predictor Statistical AI v14.0">
+    <title>Lightning Dice Predictor - Triple AI v14.0</title>
     <link rel="stylesheet" href="/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        /* Additional styles for v13.0 Median Based AI */
+        /* Additional styles for v14.0 Triple Predictor AI */
         .median-stats-panel {
             background: rgba(0,0,0,0.3);
             border-radius: 12px;
@@ -73,18 +73,6 @@
             text-align: center;
         }
         
-        .median-value-large {
-            font-size: 32px;
-            font-weight: 800;
-            color: #fbbf24;
-        }
-        
-        .median-prediction {
-            color: #fbbf24;
-            font-weight: 700;
-            animation: pulse 1.5s infinite;
-        }
-        
         .frequency-row {
             display: flex;
             justify-content: space-between;
@@ -96,21 +84,6 @@
             font-weight: 600;
         }
         
-        .frequency-bar-container {
-            flex: 1;
-            margin-left: 10px;
-            height: 6px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 3px;
-            overflow: hidden;
-        }
-        
-        .frequency-bar {
-            height: 100%;
-            border-radius: 3px;
-            transition: width 0.3s ease;
-        }
-        
         .info-badge {
             display: inline-block;
             background: rgba(251, 191, 36, 0.15);
@@ -120,7 +93,137 @@
             margin-left: 8px;
         }
         
-        .badge-median {
+        /* Triple Predictor Table Styles */
+        .triple-predictor-table {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 16px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        
+        .triple-header {
+            display: grid;
+            grid-template-columns: 1fr 100px 100px 100px;
+            background: rgba(139, 92, 246, 0.2);
+            padding: 12px 16px;
+            font-weight: 700;
+            font-size: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+        }
+        
+        .triple-row {
+            display: grid;
+            grid-template-columns: 1fr 100px 100px 100px;
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            text-align: center;
+        }
+        
+        .predictor-median { color: #a78bfa; }
+        .predictor-highvol { color: #4ade80; }
+        .predictor-lowvol { color: #fbbf24; }
+        
+        .prediction-cell {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .prediction-cell.correct {
+            background: rgba(74, 222, 128, 0.25);
+            color: #4ade80;
+            border: 1px solid rgba(74, 222, 128, 0.5);
+        }
+        
+        .prediction-cell.incorrect {
+            background: rgba(239, 68, 68, 0.25);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.5);
+        }
+        
+        .prediction-cell.pending {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+        
+        .retry-badge {
+            font-size: 9px;
+            opacity: 0.7;
+            margin-top: 2px;
+        }
+        
+        .small-info {
+            font-size: 8px;
+            opacity: 0.5;
+            margin-top: 2px;
+        }
+        
+        .triple-predictor-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .predictor-card {
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 16px;
+            padding: 15px;
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        
+        .predictor-card:hover {
+            transform: translateY(-3px);
+            background: rgba(0, 0, 0, 0.35);
+        }
+        
+        .predictor-title {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid;
+        }
+        
+        .predictor-title.median { border-color: #a78bfa; color: #a78bfa; }
+        .predictor-title.highvol { border-color: #4ade80; color: #4ade80; }
+        .predictor-title.lowvol { border-color: #fbbf24; color: #fbbf24; }
+        
+        .predictor-value {
+            font-size: 32px;
+            font-weight: 800;
+            margin: 10px 0;
+        }
+        
+        .predictor-confidence {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .predictor-status {
+            font-size: 11px;
+            margin-top: 8px;
+            padding: 4px 8px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+        
+        .status-active {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+        }
+        
+        .status-wait {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+        
+        .status-tie {
             background: rgba(139, 92, 246, 0.2);
             color: #a78bfa;
         }
@@ -153,6 +256,26 @@
             font-size: 18px;
             font-weight: 700;
         }
+        
+        .waiting-text {
+            color: #fbbf24;
+            opacity: 0.7;
+            font-style: italic;
+        }
+        
+        /* History table column adjustment */
+        .history-table th, .history-table td {
+            padding: 8px 6px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 11px;
+        }
+        
+        .dice-values {
+            font-family: monospace;
+            font-size: 11px;
+            letter-spacing: 2px;
+        }
     </style>
 </head>
 <body>
@@ -161,7 +284,7 @@
             <div class="logo">
                 <span class="lightning-icon">⚡</span>
                 <h1>Lightning Dice Predictor</h1>
-                <span class="version-badge">v13.0 - MEDIAN AI</span>
+                <span class="version-badge">v14.0 - TRIPLE AI</span>
             </div>
             <div class="header-buttons">
                 <div class="status-badge" id="connectionStatus">
@@ -192,9 +315,9 @@
             </div>
         </div>
 
-        <!-- ============ MEDIAN BASED AI PREDICTION SECTION ============ -->
+        <!-- ============ TRIPLE PREDICTOR AI SECTION ============ -->
         <div class="prediction-section">
-            <h2>📊 MEDIAN-BASED STATISTICAL AI v13.0</h2>
+            <h2>📊 TRIPLE PREDICTOR STATISTICAL AI v14.0</h2>
             
             <div class="pattern-info-bar">
                 <div class="info-item">
@@ -212,20 +335,20 @@
                 </div>
             </div>
 
-            <!-- Median Analysis Card -->
+            <!-- Frequency Analysis Card -->
             <div class="median-card" style="margin-bottom: 20px;">
-                <div style="font-size: 12px; opacity: 0.7;">📐 Median Frequency Analysis</div>
+                <div style="font-size: 12px; opacity: 0.7;">📐 30-Result Frequency Analysis</div>
                 <div class="median-info-grid">
                     <div class="median-info-item">
-                        <div class="median-info-label">LOW</div>
+                        <div class="median-info-label">🔴 LOW</div>
                         <div class="median-info-value" id="lowCount">--</div>
                     </div>
                     <div class="median-info-item">
-                        <div class="median-info-label">MEDIUM</div>
+                        <div class="median-info-label">🟡 MEDIUM</div>
                         <div class="median-info-value" id="mediumCount">--</div>
                     </div>
                     <div class="median-info-item">
-                        <div class="median-info-label">HIGH</div>
+                        <div class="median-info-label">🟢 HIGH</div>
                         <div class="median-info-value" id="highCount">--</div>
                     </div>
                 </div>
@@ -237,37 +360,36 @@
                     <span class="frequency-label">🎯 Median Value:</span>
                     <strong id="medianValue">--</strong>
                 </div>
-                <div class="frequency-row">
-                    <span class="frequency-label">🔮 Median Group:</span>
-                    <strong id="medianGroup">--</strong>
+            </div>
+
+            <!-- Three Predictors Display -->
+            <div class="triple-predictor-grid">
+                <div class="predictor-card">
+                    <div class="predictor-title median">📐 MEDIAN</div>
+                    <div class="predictor-value" id="medianPrediction">--</div>
+                    <div class="predictor-confidence" id="medianConfidence">0%</div>
+                    <div class="predictor-status" id="medianStatus">--</div>
+                </div>
+                <div class="predictor-card">
+                    <div class="predictor-title highvol">📈 HIGH-VOLUME</div>
+                    <div class="predictor-value" id="highVolPrediction">--</div>
+                    <div class="predictor-confidence" id="highVolConfidence">0%</div>
+                    <div class="predictor-status" id="highVolStatus">--</div>
+                </div>
+                <div class="predictor-card">
+                    <div class="predictor-title lowvol">📉 LOW-VOLUME</div>
+                    <div class="predictor-value" id="lowVolPrediction">--</div>
+                    <div class="predictor-confidence" id="lowVolConfidence">0%</div>
+                    <div class="predictor-status" id="lowVolStatus">--</div>
                 </div>
             </div>
 
-            <!-- Pattern Table (Simplified) -->
-            <div class="pattern-table">
-                <div class="pattern-header">
-                    <div class="col-pattern">Analysis</div>
-                    <div class="col-protection">System</div>
-                    <div class="col-prediction">Prediction</div>
-                    <div class="col-confidence">Confidence</div>
-                    <div class="col-description">Description</div>
-                </div>
-                
-                <div class="pattern-row" id="patternRow">
-                    <div class="col-pattern" id="patternName">30-Result Median</div>
-                    <div class="col-protection" id="protectionType">MEDIAN AI</div>
-                    <div class="col-prediction" id="predictionGroup">--</div>
-                    <div class="col-confidence" id="predictionConfidence">--%</div>
-                    <div class="col-description" id="patternDescription">--</div>
-                </div>
-            </div>
-
-            <!-- Final Prediction Card -->
+            <!-- Final Prediction Card (shows MEDIAN as primary) -->
             <div class="final-prediction-card">
                 <div class="final-header">
                     <span class="final-icon">🏆</span>
-                    <span class="final-title">AI FINAL PREDICTION</span>
-                    <span class="final-vote" id="predictionType">(Median-Based AI)</span>
+                    <span class="final-title">PRIMARY PREDICTION</span>
+                    <span class="final-vote" id="predictionType">(MEDIAN Predictor)</span>
                 </div>
                 <div class="final-group" id="finalGroup">
                     <span class="final-group-icon" id="finalIcon">🎯</span>
@@ -285,10 +407,10 @@
             </div>
         </div>
 
-        <!-- ============ HOW IT WORKS ============ -->
+        <!-- ============ HOW TRIPLE AI WORKS ============ -->
         <div class="patterns-reference">
             <div class="section-header">
-                <h2>📚 How Median-Based AI Works</h2>
+                <h2>📚 How Triple Predictor AI Works</h2>
             </div>
             <div class="patterns-grid">
                 <div class="pattern-card">
@@ -300,28 +422,32 @@
                     <div class="pattern-actions">Count LOW, MEDIUM, HIGH occurrences</div>
                 </div>
                 <div class="pattern-card">
-                    <div class="pattern-3step">🎯 Step 3: Find Median</div>
-                    <div class="pattern-actions">Sort counts → pick middle value → identify group</div>
+                    <div class="pattern-3step">🎯 Step 3: THREE Predictors</div>
+                    <div class="pattern-actions">
+                        📐 MEDIAN: Middle value group<br>
+                        📈 HIGH-VOL: Most frequent group<br>
+                        📉 LOW-VOL: Least frequent group
+                    </div>
                 </div>
                 <div class="pattern-card">
                     <div class="pattern-3step">✅ Step 4: Check Uniqueness</div>
-                    <div class="pattern-actions">If median is UNIQUE → PREDICT that group</div>
+                    <div class="pattern-actions">If median is UNIQUE → ALL THREE predict</div>
                 </div>
                 <div class="pattern-card">
                     <div class="pattern-3step">⏳ Step 5: Handle Ties</div>
-                    <div class="pattern-actions">If counts duplicate or equal → WAITING mode</div>
+                    <div class="pattern-actions">If median duplicate → ALL THREE WAIT</div>
                 </div>
                 <div class="pattern-card">
-                    <div class="pattern-3step">🔄 Step 6: Retry System</div>
-                    <div class="pattern-actions">Wrong prediction? Recalculate median with updated data</div>
+                    <div class="pattern-3step">🔄 Step 6: Shared Retry</div>
+                    <div class="pattern-actions">Wrong prediction? ALL THREE recalculate with updated data</div>
                 </div>
             </div>
             <div class="pattern-note">
-                💡 <strong>Why Median-Based?</strong><br>
-                📊 Median is resistant to outliers and represents the central tendency.<br>
-                🎯 Prediction only when median is UNIQUE (no ties) for highest reliability.<br>
-                ⏳ WAITING mode ensures we don't predict during uncertain conditions.<br>
-                🔄 Dynamic retry: After wrong prediction, recalculates median with new data.
+                💡 <strong>Why Triple Predictor?</strong><br>
+                📐 MEDIAN: Resistant to outliers, represents central tendency<br>
+                📈 HIGH-VOLUME: Follows the trend, predicts the most common outcome<br>
+                📉 LOW-VOLUME: Contrarian approach, predicts the least common outcome<br>
+                🔄 Shared WAITING & Retry: All three predictors wait together and retry together
             </div>
         </div>
 
@@ -356,7 +482,7 @@
             </div>
         </div>
 
-        <!-- Prediction History -->
+        <!-- Prediction History (NEW COLUMNS: MEDIAN | HIGH-VOL | LOW-VOL) -->
         <div class="history-section">
             <div class="section-header">
                 <h2>📋 PREDICTION HISTORY</h2>
@@ -368,15 +494,14 @@
                         <tr>
                             <th>Time</th>
                             <th>Dice</th>
-                            <th>Total</th>
-                            <th>Analysis</th>
-                            <th>System</th>
-                            <th>Prediction</th>
-                            <th>Result</th>
+                            <th>Total → Actual</th>
+                            <th>📐 MEDIAN</th>
+                            <th>📈 HIGH-VOL</th>
+                            <th>📉 LOW-VOL</th>
                         </tr>
                     </thead>
                     <tbody id="historyTableBody">
-                        <tr><td colspan="7">Loading history......</td></tr>
+                        <tr><td colspan="6">Loading history...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -410,7 +535,7 @@
                             <tr><th>Number</th><th>Group</th><th>Frequency</th><th>Percentage</th><th>Last Seen</th></tr>
                         </thead>
                         <tbody id="statsTableBody">
-                            <tr><td colspan="5">Loading statistics...</td></tr>
+                            <tr><td colspan="5">Loading statistics......</td></tr>
                         </tbody>
                     </table>
                 </div>
