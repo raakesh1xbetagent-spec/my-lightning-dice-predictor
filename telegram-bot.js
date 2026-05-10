@@ -1,11 +1,11 @@
 // ============================================================
-// telegram-bot.js (v13.2 - Simplified Single Message Format)
+// telegram-bot.js (v14.0 - TRIPLE PREDICTOR FORMAT)
 // 
 // Features:
-// - Single message for both PREDICTION and WAITING states
-// - Shows previous prediction result (correct/wrong)
-// - Clear retry count display
-// - Clean, minimal format
+// - Single message for RESULT & NEXT prediction (triple format)
+// - Shows three predictors in one line
+// - Clean, compact format
+// - No duplicate retry display
 // ============================================================
 
 const axios = require('axios');
@@ -43,6 +43,7 @@ class TelegramBot {
         if (this.isEnabled) {
             console.log(`📱 Chat ID: ${this.chatId}`);
             console.log(`🌐 API Base URL: ${this.apiBaseUrl}`);
+            console.log(`📊 Format: TRIPLE PREDICTOR v14.0`);
         }
     }
     
@@ -138,98 +139,82 @@ class TelegramBot {
     }
     
     /**
-     * Get previous prediction result text
+     * Get group icon
      */
-    getPreviousResultText() {
-        if (!this.lastPredictionResult.predictedGroup) {
-            return null;
-        }
-        
-        const icon = this.lastPredictionResult.isCorrect === true ? '✅ CORRECT' : 
-                     this.lastPredictionResult.isCorrect === false ? '❌ WRONG' : '⏳ PENDING';
-        
-        return `📜 Previous: ${this.lastPredictionResult.predictedGroup} → ${this.lastPredictionResult.actualGroup || '?'} ${icon}`;
+    getGroupIcon(group) {
+        if (group === 'LOW') return '🔴';
+        if (group === 'MEDIUM') return '🟡';
+        if (group === 'HIGH') return '🟢';
+        return '⚪';
     }
     
     /**
-     * Update last prediction result
+     * Get result icon
      */
-    updateLastPredictionResult(predictedGroup, actualGroup, isCorrect, retryCount) {
-        this.lastPredictionResult = {
-            predictedGroup: predictedGroup,
-            actualGroup: actualGroup,
-            isCorrect: isCorrect,
-            retryCount: retryCount || 0
-        };
+    getResultIcon(isCorrect) {
+        if (isCorrect === true) return '✅';
+        if (isCorrect === false) return '❌';
+        return '⏳';
     }
     
     /**
-     * Send prediction notification (SINGLE MESSAGE - ACTIVE MODE)
+     * Send TRIPLE PREDICTOR result & next notification (MAIN METHOD)
+     * This sends ONE message with both result and next prediction
      */
-    async sendPredictionNotification(prediction) {
+    async sendTripleResultNotification(predictionData, actualGroup, isMedianCorrect, isHighVolCorrect, isLowVolCorrect, frequencies) {
         if (!this.isEnabled) return;
         
-        // Rate limiting: don't send same prediction within 2 seconds
+        // Rate limiting
         const now = Date.now();
-        if (this.lastNotification.type === 'prediction' && 
-            this.lastNotification.predictedGroup === prediction.predictedGroup &&
-            now - this.lastNotification.timestamp < 2000) {
+        if (this.lastNotification.type === 'result' && now - this.lastNotification.timestamp < 3000) {
             return;
         }
         
         this.lastNotification = {
-            type: 'prediction',
+            type: 'result',
             timestamp: now,
-            predictedGroup: prediction.predictedGroup
+            predictedGroup: predictionData?.median?.predictedGroup || null
         };
         
-        const stats = prediction.stats;
-        const retryCount = prediction.retryCount || 0;
-        const isRetry = prediction.isRetry || false;
+        // Get prediction data
+        const median = predictionData?.median;
+        const highVolume = predictionData?.highVolume;
+        const lowVolume = predictionData?.lowVolume;
         
-        // Get previous result text
-        const previousText = this.getPreviousResultText();
+        const medianPredicted = median?.predictedGroup || '?';
+        const highVolPredicted = highVolume?.predictedGroup || '?';
+        const lowVolPredicted = lowVolume?.predictedGroup || '?';
         
-        // Build status text
-        let statusText = '🟢 ACTIVE';
-        let retryDisplay = '';
+        const medianConfidence = median?.confidence || 0;
+        const highVolConfidence = highVolume?.confidence || 0;
+        const lowVolConfidence = lowVolume?.confidence || 0;
         
-        if (isRetry && retryCount > 0) {
-            retryDisplay = `\n🔄 Retry #${retryCount}`;
-        } else if (retryCount === 0) {
-            retryDisplay = `\n🔄 Retry Count: 0`;
-        }
+        const medianIcon = this.getGroupIcon(medianPredicted);
+        const highVolIcon = this.getGroupIcon(highVolPredicted);
+        const lowVolIcon = this.getGroupIcon(lowVolPredicted);
+        
+        const actualIcon = this.getGroupIcon(actualGroup);
         
         // Build the message
-        let message = `🎯 NEXT PREDICTION: ${prediction.predictedGroup}
-━━━━━━━━━━━━━━━━━━━━━`;
-
-        if (previousText) {
-            message += `\n${previousText}`;
-        }
-        
-        message += `${retryDisplay}
-⏳ Status: ${statusText}
-💪 Confidence: ${prediction.confidence}%`;
-
-        // Add frequencies summary
-        if (stats) {
-            message += `\n━━━━━━━━━━━━━━━━━━━━━
-📊 ${stats.LOW.count} | ${stats.MEDIUM.count} | ${stats.HIGH.count}
-🔴 LOW ${stats.LOW.percentage}%  🟡 MED ${stats.MEDIUM.percentage}%  🟢 HIGH ${stats.HIGH.percentage}%`;
-        }
+        let message = `📊 TRIPLE PREDICTOR - RESULT & NEXT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📐 MEDIAN: ${medianIcon} ${medianPredicted} → ${actualIcon} ${actualGroup} ${this.getResultIcon(isMedianCorrect)} | NEXT: ${medianIcon} ${medianPredicted}(${medianConfidence}%)
+📈 HIGH-VOL: ${highVolIcon} ${highVolPredicted} → ${actualIcon} ${actualGroup} ${this.getResultIcon(isHighVolCorrect)} | NEXT: ${highVolIcon} ${highVolPredicted}(${highVolConfidence}%)
+📉 LOW-VOL: ${lowVolIcon} ${lowVolPredicted} → ${actualIcon} ${actualGroup} ${this.getResultIcon(isLowVolCorrect)} | NEXT: ${lowVolIcon} ${lowVolPredicted}(${lowVolConfidence}%)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 LOW=${frequencies?.LOW || 0} | MED=${frequencies?.MEDIUM || 0} | HIGH=${frequencies?.HIGH || 0}`;
         
         await this.sendMessage(message);
-        console.log(`📱 Telegram: Prediction sent (${prediction.predictedGroup})`);
+        console.log(`📱 Telegram: Triple result sent (${medianPredicted}→${actualGroup})`);
     }
     
     /**
-     * Send WAITING notification (SINGLE MESSAGE - WAITING MODE)
+     * Send TRIPLE PREDICTOR waiting notification
      */
-    async sendWaitingNotification(waitingData) {
+    async sendTripleWaitingNotification(waitingData, frequencies) {
         if (!this.isEnabled) return;
         
-        // Rate limiting: don't send duplicate waiting notifications within 10 seconds
+        // Rate limiting
         const now = Date.now();
         if (this.lastNotification.type === 'waiting' && now - this.lastNotification.timestamp < 10000) {
             return;
@@ -241,88 +226,79 @@ class TelegramBot {
             predictedGroup: null
         };
         
-        const stats = waitingData.stats;
-        const retryCount = waitingData.retryCount || this.lastPredictionResult.retryCount || 0;
-        
-        // Determine waiting reason
         let waitingReasonText = '';
         if (waitingData.waitingReason === 'ALL_GROUPS_EQUAL') {
-            waitingReasonText = '⚖️ All groups equal';
+            waitingReasonText = 'All groups equal';
         } else if (waitingData.waitingReason === 'DUPLICATE_MEDIAN') {
-            waitingReasonText = '🔄 Duplicate median';
+            waitingReasonText = 'Duplicate median';
         } else {
-            waitingReasonText = '⏳ No unique median';
+            waitingReasonText = 'No unique median';
         }
         
-        // Get previous result text
-        const previousText = this.getPreviousResultText();
-        
-        // Build the message
-        let message = `⏳ WAITING MODE
-━━━━━━━━━━━━━━━━━━━━━`;
-
-        if (previousText) {
-            message += `\n${previousText}`;
-        }
-        
-        message += `\n🔄 Retry Count: ${retryCount} (${retryCount >= 2 ? 'WAITING before retry #' + (retryCount + 1) : 'active'})
-⏰ Reason: ${waitingReasonText}`;
-
-        // Add frequencies
-        if (stats) {
-            const sorted = [stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b) => a-b);
-            const median = sorted[1];
-            
-            message += `\n━━━━━━━━━━━━━━━━━━━━━
-📊 ${stats.LOW.count} | ${stats.MEDIUM.count} | ${stats.HIGH.count}
-🔴 LOW ${stats.LOW.percentage}%  🟡 MED ${stats.MEDIUM.percentage}%  🟢 HIGH ${stats.HIGH.percentage}%
-📐 Median: ${median}`;
-        }
-        
-        message += `\n━━━━━━━━━━━━━━━━━━━━━
-⏰ Next prediction after 1 more result`;
+        let message = `📊 TRIPLE PREDICTOR - WAITING MODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📐 MEDIAN: ⏳ WAITING
+📈 HIGH-VOL: ⏳ WAITING
+📉 LOW-VOL: ⏳ WAITING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⏰ Reason: ${waitingReasonText}
+📊 LOW=${frequencies?.LOW || 0} | MED=${frequencies?.MEDIUM || 0} | HIGH=${frequencies?.HIGH || 0}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⏳ Next prediction after 1 more result`;
         
         await this.sendMessage(message);
-        console.log(`📱 Telegram: WAITING notification sent (${waitingData.waitingReason})`);
+        console.log(`📱 Telegram: Triple waiting sent (${waitingData.waitingReason})`);
     }
     
     /**
-     * Send correct prediction notification (updates context)
+     * Send TRIPLE PREDICTOR active prediction notification (without result)
      */
-    async sendCorrectNotification(predictedGroup, actualGroup, retryCount) {
+    async sendTriplePredictionNotification(predictionData, frequencies) {
         if (!this.isEnabled) return;
         
-        // Update stored last result
-        this.updateLastPredictionResult(predictedGroup, actualGroup, true, retryCount);
+        // Rate limiting
+        const now = Date.now();
+        const predictedGroup = predictionData?.median?.predictedGroup;
+        if (this.lastNotification.type === 'prediction' && 
+            this.lastNotification.predictedGroup === predictedGroup &&
+            now - this.lastNotification.timestamp < 2000) {
+            return;
+        }
         
-        // Send concise correct message
-        const message = `✅ CORRECT PREDICTION
-━━━━━━━━━━━━━━━━━━━━━
-🎯 ${predictedGroup} → ${actualGroup} ✓
-🔄 Retry #${retryCount || 0}`;
+        this.lastNotification = {
+            type: 'prediction',
+            timestamp: now,
+            predictedGroup: predictedGroup
+        };
+        
+        const median = predictionData?.median;
+        const highVolume = predictionData?.highVolume;
+        const lowVolume = predictionData?.lowVolume;
+        
+        const medianPredicted = median?.predictedGroup || '?';
+        const highVolPredicted = highVolume?.predictedGroup || '?';
+        const lowVolPredicted = lowVolume?.predictedGroup || '?';
+        
+        const medianConfidence = median?.confidence || 0;
+        const highVolConfidence = highVolume?.confidence || 0;
+        const lowVolConfidence = lowVolume?.confidence || 0;
+        
+        const medianIcon = this.getGroupIcon(medianPredicted);
+        const highVolIcon = this.getGroupIcon(highVolPredicted);
+        const lowVolIcon = this.getGroupIcon(lowVolPredicted);
+        
+        let message = `📊 TRIPLE PREDICTOR - ACTIVE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📐 MEDIAN: ${medianIcon} ${medianPredicted} (${medianConfidence}%)
+📈 HIGH-VOL: ${highVolIcon} ${highVolPredicted} (${highVolConfidence}%)
+📉 LOW-VOL: ${lowVolIcon} ${lowVolPredicted} (${lowVolConfidence}%)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 LOW=${frequencies?.LOW || 0} | MED=${frequencies?.MEDIUM || 0} | HIGH=${frequencies?.HIGH || 0}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⏳ Waiting for next result...`;
         
         await this.sendMessage(message);
-        console.log(`📱 Telegram: CORRECT (${predictedGroup} → ${actualGroup})`);
-    }
-    
-    /**
-     * Send wrong prediction notification (updates context)
-     */
-    async sendWrongNotification(predictedGroup, actualGroup, retryCount) {
-        if (!this.isEnabled) return;
-        
-        // Update stored last result
-        this.updateLastPredictionResult(predictedGroup, actualGroup, false, retryCount);
-        
-        // Send concise wrong message
-        const message = `❌ WRONG PREDICTION
-━━━━━━━━━━━━━━━━━━━━━
-🎯 ${predictedGroup} → ${actualGroup} ✗
-🔄 Retry #${retryCount || 0}
-⏳ Recalculating median...`;
-        
-        await this.sendMessage(message);
-        console.log(`📱 Telegram: WRONG (${predictedGroup} → ${actualGroup})`);
+        console.log(`📱 Telegram: Triple prediction sent (${medianPredicted})`);
     }
     
     /**
@@ -341,10 +317,9 @@ class TelegramBot {
 📈 Accuracy: ${accuracyText}
 ━━━━━━━━━━━━━━━━━━━━━
 🎯 Mode: ${activeText}
-📌 Prediction: ${aiStatus.currentPrediction || 'None'}
 🔄 Consecutive Wrong: ${convWrong}
 ━━━━━━━━━━━━━━━━━━━━━
-📐 LOW: ${aiStatus.currentFrequencies?.LOW || 0}
+📊 LOW: ${aiStatus.currentFrequencies?.LOW || 0}
 🟡 MEDIUM: ${aiStatus.currentFrequencies?.MEDIUM || 0}
 🟢 HIGH: ${aiStatus.currentFrequencies?.HIGH || 0}`;
         
@@ -358,7 +333,7 @@ class TelegramBot {
     /**
      * Send stats message (for /stats command)
      */
-    async sendStatsMessage(stats, last30Results) {
+    async sendStatsMessage(stats) {
         if (!this.isEnabled) return;
         
         const sorted = [stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b) => a-b);
@@ -369,15 +344,14 @@ class TelegramBot {
         else if (stats.MEDIUM.count === median) medianGroup = 'MEDIUM';
         else medianGroup = 'HIGH';
         
-        // Check if median is unique
         const isUnique = [stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].filter(c => c === median).length === 1;
         const uniqueText = isUnique ? `✅ UNIQUE → ${medianGroup}` : '⚠️ DUPLICATE (WAITING)';
         
         const message = `📊 LAST 30 STATISTICS
 ━━━━━━━━━━━━━━━━━━━━━
-🔴 LOW: ${stats.LOW.count}/30 (${stats.LOW.percentage}%) ${stats.LOW.trend.emoji}
-🟡 MEDIUM: ${stats.MEDIUM.count}/30 (${stats.MEDIUM.percentage}%) ${stats.MEDIUM.trend.emoji}
-🟢 HIGH: ${stats.HIGH.count}/30 (${stats.HIGH.percentage}%) ${stats.HIGH.trend.emoji}
+🔴 LOW: ${stats.LOW.count}/30 (${stats.LOW.percentage}%) ${stats.LOW.trend?.emoji || '⚖️'}
+🟡 MEDIUM: ${stats.MEDIUM.count}/30 (${stats.MEDIUM.percentage}%) ${stats.MEDIUM.trend?.emoji || '⚖️'}
+🟢 HIGH: ${stats.HIGH.count}/30 (${stats.HIGH.percentage}%) ${stats.HIGH.trend?.emoji || '⚖️'}
 ━━━━━━━━━━━━━━━━━━━━━
 📐 Median: ${median} → ${uniqueText}`;
         
@@ -400,9 +374,7 @@ class TelegramBot {
         
         for (let i = 0; i < last10.length; i++) {
             const p = last10[i];
-            const icon = p.isCorrect === true ? '✅' : (p.isCorrect === false ? '❌' : '⏳');
-            const num = i + 1;
-            historyText += `\n${num}. ${icon} ${p.predictedGroup} → ${p.actualGroup || '?'}`;
+            historyText += `\n${i+1}. ${p.predictedGroup} → ${p.actualGroup || '?'} ${p.isCorrect === true ? '✅' : (p.isCorrect === false ? '❌' : '⏳')}`;
         }
         
         const correct = predictions.filter(p => p.isCorrect === true).length;
@@ -418,27 +390,6 @@ class TelegramBot {
     }
     
     /**
-     * Get overall accuracy from history
-     */
-    getOverallAccuracy(predictions) {
-        const correct = predictions.filter(p => p.isCorrect === true).length;
-        const total = predictions.filter(p => p.isCorrect !== null).length;
-        if (total === 0) return 0;
-        return ((correct / total) * 100).toFixed(1);
-    }
-    
-    /**
-     * Get confidence stars
-     */
-    getConfidenceStars(confidence) {
-        if (confidence >= 80) return '🌟🌟🌟🌟🌟';
-        if (confidence >= 70) return '🌟🌟🌟🌟';
-        if (confidence >= 60) return '🌟🌟🌟';
-        if (confidence >= 50) return '🌟🌟';
-        return '🌟';
-    }
-    
-    /**
      * Start polling for user commands
      */
     async startPolling() {
@@ -449,17 +400,14 @@ class TelegramBot {
         
         console.log('🔄 Setting up Telegram bot polling...');
         
-        // First, delete webhook
         const webhookDeleted = await this.deleteWebhook();
         
         if (!webhookDeleted) {
             console.log('⚠️ Could not delete webhook, but continuing with polling...');
         }
         
-        // Wait for webhook deletion
         await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // Test bot connection
         try {
             const testUrl = `https://api.telegram.org/bot${this.botToken}/getMe`;
             const response = await axios.get(testUrl, { timeout: 10000 });
@@ -470,10 +418,8 @@ class TelegramBot {
             console.error('❌ Bot connection test failed:', error.message);
         }
         
-        // Setup commands
         await this.setupBotCommands();
         
-        // Start polling
         this.pollingInterval = setInterval(async () => {
             await this.pollUpdates();
         }, 5000);
@@ -516,7 +462,6 @@ class TelegramBot {
                 }
             }
         } catch (error) {
-            // Silently handle 409 errors
             if (error.response?.status === 409) {
                 // Normal polling conflict, ignore
             } else if (error.response?.status === 404) {
@@ -533,7 +478,6 @@ class TelegramBot {
      * Handle user commands
      */
     async handleCommand(command, chatId) {
-        // Fetch current data from API
         const data = await this.fetchAPI('/api/all-data');
         
         if (!data) {
@@ -543,7 +487,7 @@ class TelegramBot {
         
         switch(command) {
             case '/start':
-                await this.sendStartMessage(chatId, data);
+                await this.sendStartMessage(chatId);
                 break;
             case '/predict':
                 await this.sendPredictionCommand(chatId, data);
@@ -602,19 +546,21 @@ class TelegramBot {
     /**
      * Send start message
      */
-    async sendStartMessage(chatId, data) {
-        const message = `⚡ Lightning Dice Predictor v13.2
-🤖 Median-Based Statistical AI
-━━━━━━━━━━━━━━━━━━━━━
-📊 Analyzes last 30 results
-📐 Predicts median group when UNIQUE
-⏳ WAITING on duplicate/equal
-━━━━━━━━━━━━━━━━━━━━━
+    async sendStartMessage(chatId) {
+        const message = `⚡ Lightning Dice Predictor v14.0
+🤖 TRIPLE PREDICTOR STATISTICAL AI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 THREE PREDICTORS:
+📐 MEDIAN - Middle value group
+📈 HIGH-VOL - Most frequent group
+📉 LOW-VOL - Least frequent group
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📱 Commands:
 /predict - Current prediction
 /stats - 30-result statistics
 /history - Last 10 predictions
-/status - AI system status`;
+/status - AI system status
+/reset - Reset AI (admin)`;
         
         await this.sendMessageToChat(chatId, message);
     }
@@ -627,46 +573,22 @@ class TelegramBot {
         
         if (!prediction || prediction.status === 'WAITING' || prediction.waitingForData) {
             const stats = prediction?.stats;
-            let message = `⏳ WAITING MODE
-━━━━━━━━━━━━━━━━━━━━━`;
-            
-            const previousText = this.getPreviousResultText();
-            if (previousText) {
-                message += `\n${previousText}`;
-            }
-            
-            if (stats) {
-                message += `\n━━━━━━━━━━━━━━━━━━━━━
-📊 ${stats.LOW.count} | ${stats.MEDIUM.count} | ${stats.HIGH.count}
-🔴 LOW ${stats.LOW.percentage}%  🟡 MED ${stats.MEDIUM.percentage}%  🟢 HIGH ${stats.HIGH.percentage}%`;
-            }
-            
-            message += `\n━━━━━━━━━━━━━━━━━━━━━
-📐 Need ${Math.max(0, 30 - (data.last30Groups?.length || 0))} more results`;
-            
-            await this.sendMessageToChat(chatId, message);
+            const frequencies = {
+                LOW: stats?.LOW?.count || 0,
+                MEDIUM: stats?.MEDIUM?.count || 0,
+                HIGH: stats?.HIGH?.count || 0
+            };
+            await this.sendTripleWaitingNotification(prediction, frequencies);
             return;
         }
         
-        const stats = prediction.stats;
-        const retryCount = prediction.retryCount || 0;
-        const previousText = this.getPreviousResultText();
+        const frequencies = {
+            LOW: prediction.stats?.LOW?.count || 0,
+            MEDIUM: prediction.stats?.MEDIUM?.count || 0,
+            HIGH: prediction.stats?.HIGH?.count || 0
+        };
         
-        let message = `🎯 NEXT PREDICTION: ${prediction.predictedGroup}
-━━━━━━━━━━━━━━━━━━━━━`;
-        
-        if (previousText) {
-            message += `\n${previousText}`;
-        }
-        
-        message += `\n🔄 Retry Count: ${retryCount}
-⏳ Status: ACTIVE
-💪 Confidence: ${prediction.confidence}%
-━━━━━━━━━━━━━━━━━━━━━
-📊 ${stats.LOW.count} | ${stats.MEDIUM.count} | ${stats.HIGH.count}
-🔴 LOW ${stats.LOW.percentage}%  🟡 MED ${stats.MEDIUM.percentage}%  🟢 HIGH ${stats.HIGH.percentage}%`;
-        
-        await this.sendMessageToChat(chatId, message);
+        await this.sendTriplePredictionNotification(prediction, frequencies);
     }
     
     /**
@@ -680,19 +602,7 @@ class TelegramBot {
             return;
         }
         
-        const stats = prediction.stats;
-        const sorted = [stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b) => a-b);
-        const median = sorted[1];
-        
-        const message = `📊 LAST 30 STATISTICS
-━━━━━━━━━━━━━━━━━━━━━
-🔴 LOW: ${stats.LOW.count}/30 (${stats.LOW.percentage}%)
-🟡 MEDIUM: ${stats.MEDIUM.count}/30 (${stats.MEDIUM.percentage}%)
-🟢 HIGH: ${stats.HIGH.count}/30 (${stats.HIGH.percentage}%)
-━━━━━━━━━━━━━━━━━━━━━
-📐 Median: ${median}`;
-        
-        await this.sendMessageToChat(chatId, message);
+        await this.sendStatsMessage(prediction.stats);
     }
     
     /**
@@ -700,57 +610,16 @@ class TelegramBot {
      */
     async sendHistoryCommand(chatId, data) {
         const predictions = data.predictions || [];
-        
-        if (predictions.length === 0) {
-            await this.sendMessageToChat(chatId, '📜 No prediction history yet.');
-            return;
-        }
-        
-        const last10 = predictions.slice(0, 10);
-        let historyText = '';
-        
-        for (let i = 0; i < last10.length; i++) {
-            const p = last10[i];
-            const icon = p.isCorrect === true ? '✅' : (p.isCorrect === false ? '❌' : '⏳');
-            historyText += `\n${i+1}. ${icon} ${p.predictedGroup} → ${p.actualGroup || '?'}`;
-        }
-        
-        const correct = predictions.filter(p => p.isCorrect === true).length;
-        const total = predictions.filter(p => p.isCorrect !== null).length;
-        const accuracy = total > 0 ? ((correct / total) * 100).toFixed(1) : 0;
-        
-        const message = `📜 LAST 10 PREDICTIONS
-━━━━━━━━━━━━━━━━━━━━━${historyText}
-━━━━━━━━━━━━━━━━━━━━━
-📊 Accuracy: ${accuracy}% (${correct}/${total})`;
-        
-        await this.sendMessageToChat(chatId, message);
+        await this.sendHistoryMessage(predictions);
     }
     
     /**
      * Send status command response
      */
     async sendStatusCommand(chatId, data) {
-        const aiStats = data.aiStats || {};
-        const prediction = data.currentPrediction;
         const aiStatus = data.aiStatus || {};
-        
-        const accuracy = aiStats.accuracy || 0;
-        const totalPredictions = aiStats.total_predictions || 0;
-        const correctPredictions = aiStats.correct_predictions || 0;
-        const isActive = prediction && prediction.status !== 'WAITING';
-        const convWrong = aiStatus.consecutiveWrongCount || 0;
-        
-        const message = `🤖 AI STATUS
-━━━━━━━━━━━━━━━━━━━━━
-📊 Total: ${totalPredictions} | ✅ ${correctPredictions}
-📈 Accuracy: ${accuracy.toFixed(1)}%
-━━━━━━━━━━━━━━━━━━━━━
-🎯 Mode: ${isActive ? 'ACTIVE' : 'WAITING'}
-📌 Prediction: ${prediction?.predictedGroup || 'None'}
-🔄 Wrong Count: ${convWrong}`;
-        
-        await this.sendMessageToChat(chatId, message);
+        const prediction = data.currentPrediction;
+        await this.sendStatusMessage(aiStatus, prediction);
     }
     
     /**
@@ -762,7 +631,6 @@ class TelegramBot {
                 timeout: 10000
             });
             if (response.data && response.data.success) {
-                // Reset stored context
                 this.lastPredictionResult = {
                     predictedGroup: null,
                     actualGroup: null,
