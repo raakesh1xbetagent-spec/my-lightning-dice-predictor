@@ -51,13 +51,19 @@ async function sendTelegramWaiting(waitingData) {
 
 async function sendTelegramCorrect(predictedGroups, actualGroup, retryCount) {
     if (telegramBot && telegramBot.isEnabled) {
-        await telegramBot.sendTripleCorrectNotification(predictedGroups, actualGroup, retryCount);
+        // Check if method exists, if not, skip
+        if (typeof telegramBot.sendTripleCorrectNotification === 'function') {
+            await telegramBot.sendTripleCorrectNotification(predictedGroups, actualGroup, retryCount);
+        }
     }
 }
 
 async function sendTelegramWrong(predictedGroups, actualGroup, retryCount) {
     if (telegramBot && telegramBot.isEnabled) {
-        await telegramBot.sendTripleWrongNotification(predictedGroups, actualGroup, retryCount);
+        // Check if method exists, if not, skip
+        if (typeof telegramBot.sendTripleWrongNotification === 'function') {
+            await telegramBot.sendTripleWrongNotification(predictedGroups, actualGroup, retryCount);
+        }
     }
 }
 
@@ -349,7 +355,7 @@ function getPredictionsData(limit = 500) {
                     time: p.prediction_timestamp ? new Date(p.prediction_timestamp).toLocaleTimeString() : '--',
                     dice: p.dice_values || '--',
                     total: p.total || '--',
-                    actualGroup: p.actual_group || '?',
+                    actualGroup: p.actual_group || null,
                     predictedGroup: p.predicted_group || '--',
                     predictedHighVol: p.predicted_high_vol || null,
                     predictedLowVol: p.predicted_low_vol || null,
@@ -560,6 +566,9 @@ async function savePredictionOnly(resultId, last30Results) {
     }
 }
 
+// ============================================================
+// UPDATED updatePredictionWithResult with detailed logging
+// ============================================================
 async function updatePredictionWithResult(resultId, actualGroup) {
     console.log(`\n📊 UPDATING TRIPLE PREDICTION with result for ${resultId}:`);
     console.log(`   ACTUAL RESULT: ${actualGroup}`);
@@ -581,17 +590,14 @@ async function updatePredictionWithResult(resultId, actualGroup) {
         return null;
     }
     
-    // Skip if prediction was WAITING
     if (prediction.predicted_group === 'WAITING') {
         console.log(`⚠️ Prediction was WAITING mode, skipping result update`);
         return null;
     }
     
-    // Check correctness for all three predictors
     const isMedianCorrect = (prediction.predicted_group === actualGroup) ? 1 : 0;
     const isHighVolCorrect = (prediction.predicted_high_vol === actualGroup) ? 1 : 0;
     const isLowVolCorrect = (prediction.predicted_low_vol === actualGroup) ? 1 : 0;
-    const isRetry = prediction.is_retry === 1;
     const retryCount = prediction.retry_number || 0;
     
     console.log(`   RESULTS:`);
@@ -599,19 +605,14 @@ async function updatePredictionWithResult(resultId, actualGroup) {
     console.log(`   HIGH-VOL: ${prediction.predicted_high_vol} → ${isHighVolCorrect ? '✓ CORRECT' : '✗ WRONG'}`);
     console.log(`   LOW-VOL: ${prediction.predicted_low_vol} → ${isLowVolCorrect ? '✓ CORRECT' : '✗ WRONG'}`);
     
-    // Update AI model with the actual result (MEDIAN determines activation)
     const last30Results = await getLast30Results();
-    let updateResult = null;
     
     if (serverAI && last30Results.length >= 30) {
-        updateResult = serverAI.updateWithResult(actualGroup, last30Results);
+        serverAI.updateWithResult(actualGroup, last30Results);
         console.log(`   Shared AI Accuracy updated: ${serverAI.getAccuracy().toFixed(1)}%`);
         console.log(`   Shared Wrong Count: ${serverAI.consecutiveWrongCount}`);
         
-        // Get new prediction status for next round
         const newPrediction = serverAI.predict(last30Results);
-        
-        // Send Telegram notifications with triple results
         const predictedGroups = {
             median: prediction.predicted_group,
             highVolume: prediction.predicted_high_vol,
@@ -622,9 +623,7 @@ async function updatePredictionWithResult(resultId, actualGroup) {
             await sendTelegramCorrect(predictedGroups, actualGroup, retryCount);
         } else {
             await sendTelegramWrong(predictedGroups, actualGroup, retryCount + 1);
-            
-            // If new prediction is available and different, send it
-            if (newPrediction.status === 'PREDICTION_READY' && newPrediction.median.predictedGroup !== prediction.predicted_group) {
+            if (newPrediction.status === 'PREDICTION_READY' && newPrediction.median && newPrediction.median.predictedGroup !== prediction.predicted_group) {
                 await sendTelegramPrediction(newPrediction);
             } else if (newPrediction.status === 'WAITING') {
                 await sendTelegramWaiting(newPrediction);
@@ -632,6 +631,7 @@ async function updatePredictionWithResult(resultId, actualGroup) {
         }
     }
     
+    // CRITICAL FIX: Use function(err) instead of arrow function to get this.changes
     return new Promise((resolve) => {
         db.run(`UPDATE predictions SET
                 actual_group = ?,
@@ -641,14 +641,20 @@ async function updatePredictionWithResult(resultId, actualGroup) {
                 is_low_vol_correct = ?
                 WHERE result_id = ?`,
             [actualGroup, new Date().toISOString(), isMedianCorrect, isHighVolCorrect, isLowVolCorrect, resultId],
-            async (err) => {
+            function(err) {
                 if (err) {
-                    console.error('Error updating prediction with result:', err);
+                    console.error(`❌ SQL UPDATE ERROR for ${resultId}:`, err.message);
+                    resolve({ success: false, error: err.message });
                 } else {
-                    console.log(`✅ Triple Prediction UPDATED with result for ${resultId}`);
-                    await updateAIStatsTable(isMedianCorrect === 1);
+                    console.log(`✅ SQL UPDATE SUCCESS for ${resultId}: ${this.changes} row(s) affected`);
+                    if (this.changes === 0) {
+                        console.log(`⚠️ WARNING: No rows were updated! result_id ${resultId} may not exist.`);
+                    } else {
+                        console.log(`✅ Triple Prediction UPDATED with result for ${resultId}`);
+                    }
+                    updateAIStatsTable(isMedianCorrect === 1);
+                    resolve({ success: true, changes: this.changes });
                 }
-                resolve({ prediction, medianCorrect: isMedianCorrect, highVolCorrect: isHighVolCorrect, lowVolCorrect: isLowVolCorrect, updateResult });
             }
         );
     });
@@ -670,19 +676,23 @@ async function updateAIStatsTable(correct) {
     });
 }
 
+// ============================================================
+// UPDATED broadcastFullDataOnNewResult - always fetch fresh predictions
+// ============================================================
 async function broadcastFullDataOnNewResult(gameResult, predictionData) {
     console.log(`📡 Preparing broadcast for ${clients.size} clients...`);
     
-    const [results, predictions, stats, aiStats] = await Promise.all([
+    // Always fetch fresh predictions after update
+    const freshPredictions = await getPredictionsData(500);
+    
+    const [results, stats, aiStats] = await Promise.all([
         getResultsData(100),
-        getPredictionsData(500),
         getStatsData(),
         getAIStatsData()
     ]);
     
     results.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     
-    // Get last 30 results for display
     const last30Results = await getLast30Results();
     const last30Groups = last30Results.map(r => r.group);
     
@@ -697,7 +707,7 @@ async function broadcastFullDataOnNewResult(gameResult, predictionData) {
             timestamp: gameResult.timestamp
         },
         prediction: predictionData,
-        history: predictions,
+        history: freshPredictions,
         stats: stats,
         aiStats: aiStats,
         allResults: results,
@@ -761,7 +771,7 @@ async function saveGameResult(game) {
 }
 
 // ============================================================
-// CRITICAL FIX: collectData() function - UPDATED for v14.0
+// UPDATED collectData() function - Always update prediction
 // ============================================================
 async function collectData() {
     if (isCollecting) return;
@@ -797,13 +807,11 @@ async function collectData() {
                     
                     let predictionData = null;
                     
-                    // STEP 1: Save prediction for this game (if enough history)
                     if (last30Results.length >= 30) {
                         pendingPredictions.add(gameId);
                         console.log(`🔮 Saving triple prediction FIRST for ${gameId}...`);
                         predictionData = await savePredictionOnly(gameId, last30Results);
                         
-                        // Send Telegram notification for prediction or waiting
                         if (predictionData && predictionData.status === 'PREDICTION_READY') {
                             await sendTelegramPrediction(predictionData);
                         } else if (predictionData && predictionData.status === 'WAITING') {
@@ -813,42 +821,28 @@ async function collectData() {
                         console.log(`⚠️ Cannot save prediction: need 30+ history, have ${last30Results.length}`);
                     }
                     
-                    // STEP 2: Save the actual game result
                     const savedResult = await saveGameResult(game);
-                    
-                    // STEP 3: Get the actual result group
                     const totalResult = game.result.total;
                     const group = getGroup(totalResult);
                     console.log(`📊 Actual result: ${totalResult} → ${group}`);
                     
-                    // STEP 4: CRITICAL FIX - Update prediction with actual result
-                    // Check using predictedGroup (v13.0 style) instead of status (v14.0 style)
-                    if (predictionData && predictionData.predictedGroup) {
-                        console.log(`🔄 Updating prediction for ${gameId} with actual group: ${group}`);
-                        await updatePredictionWithResult(gameId, group);
-                    } else if (predictionData && predictionData.median && predictionData.median.predictedGroup) {
-                        // Alternative check for triple prediction structure
-                        console.log(`🔄 Updating prediction (triple structure) for ${gameId} with actual group: ${group}`);
-                        await updatePredictionWithResult(gameId, group);
-                    } else {
-                        console.log(`⚠️ No valid predictionData for ${gameId}, checking if prediction exists in DB...`);
-                        // Still try to update if prediction exists in database
-                        const existsInDb = await new Promise((resolve) => {
-                            db.get(`SELECT id FROM predictions WHERE result_id = ?`, [gameId], (err, row) => {
-                                resolve(!!row);
-                            });
+                    // ALWAYS try to update prediction if it exists in database
+                    const existsInDb = await new Promise((resolve) => {
+                        db.get(`SELECT id FROM predictions WHERE result_id = ?`, [gameId], (err, row) => {
+                            resolve(!!row);
                         });
-                        if (existsInDb) {
-                            console.log(`✅ Found prediction in DB for ${gameId}, updating...`);
-                            await updatePredictionWithResult(gameId, group);
-                        } else {
-                            console.log(`❌ No prediction found for ${gameId} in DB`);
-                        }
+                    });
+                    
+                    if (existsInDb) {
+                        console.log(`🔄 Updating prediction for ${gameId} with actual group: ${group}`);
+                        const updateResult = await updatePredictionWithResult(gameId, group);
+                        console.log(`📊 Update result:`, updateResult);
+                    } else {
+                        console.log(`⚠️ No prediction found for ${gameId} in DB, skipping update`);
                     }
                     
                     pendingPredictions.delete(gameId);
                     
-                    // STEP 5: Get updated current prediction for broadcast
                     const currentPrediction = await getCurrentPredictionData();
                     await broadcastFullDataOnNewResult(savedResult, currentPrediction);
                     
@@ -884,14 +878,12 @@ async function checkDatabaseOnStartup() {
         const median = sorted[1];
         console.log(`   📐 Median: ${median}`);
         
-        // Find which group has median
         let medianGroup = 'UNKNOWN';
         if (freq.LOW === median && freq.MEDIUM !== median && freq.HIGH !== median) medianGroup = 'LOW';
         else if (freq.MEDIUM === median && freq.LOW !== median && freq.HIGH !== median) medianGroup = 'MEDIUM';
         else if (freq.HIGH === median && freq.LOW !== median && freq.MEDIUM !== median) medianGroup = 'HIGH';
         else medianGroup = 'DUPLICATE/WAITING';
         
-        // Calculate triple predictions
         let highVolGroup = 'UNKNOWN';
         let lowVolGroup = 'UNKNOWN';
         
@@ -928,11 +920,8 @@ app.get('/api/all-data', async (req, res) => {
         
         results.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         
-        // Get last 30 groups
         const last30Results = await getLast30Results();
         const last30Groups = last30Results.map(r => r.group);
-        
-        // Add AI status
         const aiStatus = serverAI ? serverAI.getStatus() : null;
         
         res.json({
