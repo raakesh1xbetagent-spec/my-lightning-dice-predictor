@@ -4,6 +4,7 @@
 // - THREE predictions: MEDIAN, HIGH-VOLUME, LOW-VOLUME
 // - Shared WAITING display
 // - Color-coded history (green = correct, red = wrong)
+// - Fixed: Actual group display, Retry in all columns
 // - Trend analysis
 // ============================================================
 
@@ -444,22 +445,37 @@ class LightningDiceApp {
             };
             
             const getPredictionCell = (predictedGroup, isCorrect) => {
+                if (!predictedGroup || predictedGroup === 'WAITING' || predictedGroup === '--') {
+                    return `<span class="prediction-cell pending">⏳ --</span>`;
+                }
                 const icon = getIcon(predictedGroup);
                 const correctClass = isCorrect === true ? 'correct' : (isCorrect === false ? 'incorrect' : 'pending');
                 const checkIcon = isCorrect === true ? '✓' : (isCorrect === false ? '✗' : '⏳');
-                return `<span class="prediction-cell ${correctClass}">${icon} ${predictedGroup || '--'} ${checkIcon}</span>`;
+                return `<span class="prediction-cell ${correctClass}">${icon} ${predictedGroup} ${checkIcon}</span>`;
             };
             
-            const retryText = item.retryNumber > 0 ? `<div class="retry-badge">Retry #${item.retryNumber}</div>` : '';
+            // Shared retry text for all columns
+            const retryText = item.retryNumber > 0 ? `<div class="retry-badge">🔄 #${item.retryNumber}</div>` : '';
+            
+            // Fix: Actual group display - properly show actual result
+            let actualDisplay = '';
+            if (item.actualGroup && item.actualGroup !== '?' && item.actualGroup !== null && item.actualGroup !== '--') {
+                actualDisplay = `${getIcon(item.actualGroup)} ${item.actualGroup}`;
+            } else {
+                actualDisplay = `⏳ Pending`;
+            }
+            
+            // Median info display
+            const medianInfo = item.medianValue ? `<div class="small-info">📐 ${item.medianValue}</div>` : '';
             
             return `
                 <tr>
                     <td style="font-size: 11px;">${item.time || '--'}</td>
                     <td class="dice-values" style="font-size: 11px;">🎲 ${item.dice || '--'}</td>
-                    <td><strong>${item.total || '--'}</strong><br><small>${getIcon(item.actualGroup)} ${item.actualGroup || '?'}</small></td>
-                    <td>${getPredictionCell(item.predictedGroup, item.isCorrect)}${item.medianValue ? `<div class="small-info">Median: ${item.medianValue}</div>` : ''}</td>
+                    <td><strong>${item.total || '--'}</strong><br><small>${actualDisplay}</small></td>
+                    <td>${getPredictionCell(item.predictedGroup, item.isCorrect)}${retryText}${medianInfo}</td>
                     <td>${getPredictionCell(item.predictedHighVol, item.isHighVolCorrect)}${retryText}</td>
-                    <td>${getPredictionCell(item.predictedLowVol, item.isLowVolCorrect)}</td>
+                    <td>${getPredictionCell(item.predictedLowVol, item.isLowVolCorrect)}${retryText}</td>
                 </tr>
             `;
         }).join('');
