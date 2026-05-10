@@ -760,6 +760,9 @@ async function saveGameResult(game) {
     });
 }
 
+// ============================================================
+// CRITICAL FIX: collectData() function - UPDATED for v14.0
+// ============================================================
 async function collectData() {
     if (isCollecting) return;
     isCollecting = true;
@@ -794,6 +797,7 @@ async function collectData() {
                     
                     let predictionData = null;
                     
+                    // STEP 1: Save prediction for this game (if enough history)
                     if (last30Results.length >= 30) {
                         pendingPredictions.add(gameId);
                         console.log(`🔮 Saving triple prediction FIRST for ${gameId}...`);
@@ -802,28 +806,49 @@ async function collectData() {
                         // Send Telegram notification for prediction or waiting
                         if (predictionData && predictionData.status === 'PREDICTION_READY') {
                             await sendTelegramPrediction(predictionData);
-                        } else if (last30Results.length >= 30) {
-                            // Get current prediction for waiting notification
-                            const currentPred = await getCurrentPredictionData();
-                            if (currentPred.status === 'WAITING') {
-                                await sendTelegramWaiting(currentPred);
-                            }
+                        } else if (predictionData && predictionData.status === 'WAITING') {
+                            await sendTelegramWaiting(predictionData);
                         }
                     } else {
                         console.log(`⚠️ Cannot save prediction: need 30+ history, have ${last30Results.length}`);
                     }
                     
+                    // STEP 2: Save the actual game result
                     const savedResult = await saveGameResult(game);
                     
+                    // STEP 3: Get the actual result group
                     const totalResult = game.result.total;
                     const group = getGroup(totalResult);
+                    console.log(`📊 Actual result: ${totalResult} → ${group}`);
                     
-                    if (predictionData && predictionData.status === 'PREDICTION_READY') {
+                    // STEP 4: CRITICAL FIX - Update prediction with actual result
+                    // Check using predictedGroup (v13.0 style) instead of status (v14.0 style)
+                    if (predictionData && predictionData.predictedGroup) {
+                        console.log(`🔄 Updating prediction for ${gameId} with actual group: ${group}`);
                         await updatePredictionWithResult(gameId, group);
+                    } else if (predictionData && predictionData.median && predictionData.median.predictedGroup) {
+                        // Alternative check for triple prediction structure
+                        console.log(`🔄 Updating prediction (triple structure) for ${gameId} with actual group: ${group}`);
+                        await updatePredictionWithResult(gameId, group);
+                    } else {
+                        console.log(`⚠️ No valid predictionData for ${gameId}, checking if prediction exists in DB...`);
+                        // Still try to update if prediction exists in database
+                        const existsInDb = await new Promise((resolve) => {
+                            db.get(`SELECT id FROM predictions WHERE result_id = ?`, [gameId], (err, row) => {
+                                resolve(!!row);
+                            });
+                        });
+                        if (existsInDb) {
+                            console.log(`✅ Found prediction in DB for ${gameId}, updating...`);
+                            await updatePredictionWithResult(gameId, group);
+                        } else {
+                            console.log(`❌ No prediction found for ${gameId} in DB`);
+                        }
                     }
                     
                     pendingPredictions.delete(gameId);
                     
+                    // STEP 5: Get updated current prediction for broadcast
                     const currentPrediction = await getCurrentPredictionData();
                     await broadcastFullDataOnNewResult(savedResult, currentPrediction);
                     
