@@ -1,6 +1,10 @@
 // ============================================================
-// COMPLETE script.js (UPDATED FOR v13.0 - MEDIAN BASED AI)
-// Features: 30-result median-based prediction | WAITING display | Trend analysis
+// COMPLETE script.js (UPDATED FOR v14.0 - TRIPLE PREDICTOR AI)
+// Features: 
+// - THREE predictions: MEDIAN, HIGH-VOLUME, LOW-VOLUME
+// - Shared WAITING display
+// - Color-coded history (green = correct, red = wrong)
+// - Trend analysis
 // ============================================================
 
 class LightningDiceApp {
@@ -28,7 +32,7 @@ class LightningDiceApp {
     }
     
     async init() {
-        console.log('🚀 Initializing Median-Based Statistical AI System v13.0...');
+        console.log('🚀 Initializing Triple Predictor Statistical AI System v14.0...');
         this.bindEvents();
         this.setupAutoRefresh();
         
@@ -70,7 +74,7 @@ class LightningDiceApp {
             this.updateGroupProbabilities();
             this.updateStatsDisplay(data.stats);
             this.updateLast30Display();
-            this.updateMedianDisplay();
+            this.updateTripleDisplay();
             
             console.log(`✅ Initial data loaded: ${this.allResults.length} results, ${this.predictionHistory.length} valid predictions`);
         } catch (error) {
@@ -103,15 +107,26 @@ class LightningDiceApp {
         }
     }
     
-    updateMedianDisplay() {
+    updateTripleDisplay() {
+        // Update median display elements
         const medianValueEl = document.getElementById('medianValue');
-        const medianGroupEl = document.getElementById('medianGroup');
         const frequenciesEl = document.getElementById('frequencies');
+        
+        // Update triple predictor displays
+        const medianPredictionEl = document.getElementById('medianPrediction');
+        const highVolPredictionEl = document.getElementById('highVolPrediction');
+        const lowVolPredictionEl = document.getElementById('lowVolPrediction');
+        
+        const medianConfidenceEl = document.getElementById('medianConfidence');
+        const highVolConfidenceEl = document.getElementById('highVolConfidence');
+        const lowVolConfidenceEl = document.getElementById('lowVolConfidence');
         
         if (!this.currentPrediction) {
             if (medianValueEl) medianValueEl.textContent = '--';
-            if (medianGroupEl) medianGroupEl.textContent = '--';
             if (frequenciesEl) frequenciesEl.textContent = '-- → -- → --';
+            if (medianPredictionEl) medianPredictionEl.innerHTML = '<span class="waiting-text">--</span>';
+            if (highVolPredictionEl) highVolPredictionEl.innerHTML = '<span class="waiting-text">--</span>';
+            if (lowVolPredictionEl) lowVolPredictionEl.innerHTML = '<span class="waiting-text">--</span>';
             return;
         }
         
@@ -123,13 +138,52 @@ class LightningDiceApp {
             const sorted = [stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].sort((a,b) => a-b);
             const median = sorted[1];
             if (medianValueEl) medianValueEl.textContent = median;
-            
-            if (this.currentPrediction.status === 'PREDICTION_READY') {
-                if (medianGroupEl) {
-                    medianGroupEl.innerHTML = `<span class="median-prediction">${this.currentPrediction.predictedGroup}</span>`;
-                }
+        }
+        
+        // Check if waiting mode
+        if (this.currentPrediction.status === 'WAITING') {
+            if (medianPredictionEl) medianPredictionEl.innerHTML = '<span class="waiting-text">⏳ WAITING</span>';
+            if (highVolPredictionEl) highVolPredictionEl.innerHTML = '<span class="waiting-text">⏳ WAITING</span>';
+            if (lowVolPredictionEl) lowVolPredictionEl.innerHTML = '<span class="waiting-text">⏳ WAITING</span>';
+            if (medianConfidenceEl) medianConfidenceEl.textContent = '0%';
+            if (highVolConfidenceEl) highVolConfidenceEl.textContent = '0%';
+            if (lowVolConfidenceEl) lowVolConfidenceEl.textContent = '0%';
+            return;
+        }
+        
+        // PREDICTION_READY - show all three predictions
+        const median = this.currentPrediction.median;
+        const highVolume = this.currentPrediction.highVolume;
+        const lowVolume = this.currentPrediction.lowVolume;
+        
+        if (median && medianPredictionEl) {
+            medianPredictionEl.innerHTML = `${this.getGroupIcon(median.predictedGroup)} ${median.predictedGroup}`;
+            if (medianConfidenceEl) medianConfidenceEl.textContent = `${median.confidence}%`;
+        }
+        
+        if (highVolume && highVolPredictionEl) {
+            if (highVolume.status === 'ACTIVE') {
+                highVolPredictionEl.innerHTML = `${this.getGroupIcon(highVolume.predictedGroup)} ${highVolume.predictedGroup}`;
+                if (highVolConfidenceEl) highVolConfidenceEl.textContent = `${highVolume.confidence}%`;
+            } else if (highVolume.status === 'TIE') {
+                highVolPredictionEl.innerHTML = '<span class="waiting-text">⚖️ TIE</span>';
+                if (highVolConfidenceEl) highVolConfidenceEl.textContent = '0%';
             } else {
-                if (medianGroupEl) medianGroupEl.innerHTML = '<span class="waiting-text">WAITING (duplicate)</span>';
+                highVolPredictionEl.innerHTML = '<span class="waiting-text">--</span>';
+                if (highVolConfidenceEl) highVolConfidenceEl.textContent = '0%';
+            }
+        }
+        
+        if (lowVolume && lowVolPredictionEl) {
+            if (lowVolume.status === 'ACTIVE') {
+                lowVolPredictionEl.innerHTML = `${this.getGroupIcon(lowVolume.predictedGroup)} ${lowVolume.predictedGroup}`;
+                if (lowVolConfidenceEl) lowVolConfidenceEl.textContent = `${lowVolume.confidence}%`;
+            } else if (lowVolume.status === 'TIE') {
+                lowVolPredictionEl.innerHTML = '<span class="waiting-text">⚖️ TIE</span>';
+                if (lowVolConfidenceEl) lowVolConfidenceEl.textContent = '0%';
+            } else {
+                lowVolPredictionEl.innerHTML = '<span class="waiting-text">--</span>';
+                if (lowVolConfidenceEl) lowVolConfidenceEl.textContent = '0%';
             }
         }
     }
@@ -188,8 +242,6 @@ class LightningDiceApp {
         this.currentPrediction = prediction;
         
         // Update elements
-        const predictionGroupEl = document.getElementById('predictionGroup');
-        const predictionConfidenceEl = document.getElementById('predictionConfidence');
         const predictionStatusEl = document.getElementById('predictionStatus');
         const activeModelDisplay = document.getElementById('activeModelDisplay');
         
@@ -208,47 +260,49 @@ class LightningDiceApp {
             return;
         }
         
-        // Prediction ready
-        const predictedGroup = prediction.predictedGroup;
-        const confidence = prediction.confidence || 70;
+        // Prediction ready - show MEDIAN as primary
+        const median = prediction.median;
+        const highVolume = prediction.highVolume;
+        const lowVolume = prediction.lowVolume;
         const isRetry = prediction.isRetry || false;
         const retryCount = prediction.retryCount || 0;
         const stats = prediction.stats;
         
-        if (predictionGroupEl) predictionGroupEl.innerHTML = `${this.getGroupIcon(predictedGroup)} ${predictedGroup}`;
-        if (predictionConfidenceEl) predictionConfidenceEl.textContent = `${confidence}%`;
         if (predictionStatusEl) predictionStatusEl.innerHTML = '<span class="status-active">🎯 PREDICTION ACTIVE</span>';
-        if (activeModelDisplay) activeModelDisplay.innerHTML = '<span class="status-match">MEDIAN AI ACTIVE</span>';
+        if (activeModelDisplay) activeModelDisplay.innerHTML = '<span class="status-match">TRIPLE AI ACTIVE</span>';
         
-        // Final prediction card
-        if (finalIcon) finalIcon.textContent = this.getGroupIcon(predictedGroup);
-        if (finalName) finalName.textContent = predictedGroup;
-        if (finalRange) finalRange.textContent = `(${this.getGroupRange(predictedGroup)})`;
-        if (confidenceFill) confidenceFill.style.width = `${confidence}%`;
-        if (finalConfidence) finalConfidence.textContent = `${confidence}%`;
+        // Final prediction card (shows MEDIAN as primary)
+        if (finalIcon) finalIcon.textContent = this.getGroupIcon(median.predictedGroup);
+        if (finalName) finalName.textContent = median.predictedGroup;
+        if (finalRange) finalRange.textContent = `(${this.getGroupRange(median.predictedGroup)})`;
+        if (confidenceFill) confidenceFill.style.width = `${median.confidence}%`;
+        if (finalConfidence) finalConfidence.textContent = `${median.confidence}%`;
         
-        // Explanation
-        const retryText = isRetry ? `<br><span style="color:#fbbf24;">🔄 RETRY #${retryCount + 1} - Recalculated median with updated data</span>` : '';
+        // Explanation with all three predictions
+        const retryText = isRetry ? `<br><span style="color:#fbbf24;">🔄 SHARED RETRY #${retryCount + 1} - Recalculated with updated data</span>` : '';
         
         if (finalExplanation) {
             finalExplanation.innerHTML = `
-                <strong>📊 MEDIAN-BASED STATISTICAL AI</strong><br><br>
+                <strong>📊 TRIPLE PREDICTOR STATISTICAL AI v14.0</strong><br><br>
                 📐 <strong>Last 30 Frequencies:</strong><br>
                 🔴 LOW: ${stats.LOW.count} times (${stats.LOW.percentage}%) ${stats.LOW.trend.emoji}<br>
                 🟡 MEDIUM: ${stats.MEDIUM.count} times (${stats.MEDIUM.percentage}%) ${stats.MEDIUM.trend.emoji}<br>
                 🟢 HIGH: ${stats.HIGH.count} times (${stats.HIGH.percentage}%) ${stats.HIGH.trend.emoji}<br><br>
                 📊 <strong>Median Calculation:</strong> ${stats.LOW.count} → ${stats.MEDIUM.count} → ${stats.HIGH.count}<br>
-                Median Value: <strong>${prediction.medianValue}</strong> → Group: <strong style="color:#fbbf24;">${predictedGroup}</strong><br><br>
-                🎯 <strong>Prediction:</strong> ${predictedGroup} with ${confidence}% confidence<br>
-                💡 <em>${prediction.message || `Predicting ${predictedGroup} based on unique median frequency.`}</em>
+                Median Value: <strong>${prediction.medianValue}</strong><br><br>
+                🎯 <strong>THREE PREDICTIONS:</strong><br>
+                📐 MEDIAN: <strong style="color:#a78bfa;">${median.predictedGroup}</strong> (${median.confidence}% confidence)<br>
+                📈 HIGH-VOLUME: <strong style="color:#4ade80;">${highVolume.predictedGroup || 'TIE'}</strong> (${highVolume.confidence || 0}% confidence)<br>
+                📉 LOW-VOLUME: <strong style="color:#fbbf24;">${lowVolume.predictedGroup || 'TIE'}</strong> (${lowVolume.confidence || 0}% confidence)<br><br>
+                💡 <em>${median.message || `Predicting ${median.predictedGroup} based on unique median frequency.`}</em>
                 ${retryText}
             `;
         }
         
-        if (finalWeights) {
+        if (finalWeights && stats) {
             finalWeights.innerHTML = `
                 <div class="median-stats-panel">
-                    <div class="median-title">📐 Median Analysis</div>
+                    <div class="median-title">📐 Triple Predictor Analysis</div>
                     <div class="median-bars">
                         <div class="median-bar low-bar" style="width: ${stats.LOW.percentage}%">LOW ${stats.LOW.percentage}%</div>
                         <div class="median-bar medium-bar" style="width: ${stats.MEDIUM.percentage}%">MED ${stats.MEDIUM.percentage}%</div>
@@ -258,13 +312,11 @@ class LightningDiceApp {
             `;
         }
         
-        // Update median display
-        this.updateMedianDisplay();
+        // Update triple display
+        this.updateTripleDisplay();
     }
     
     showWaitingState() {
-        const predictionGroupEl = document.getElementById('predictionGroup');
-        const predictionConfidenceEl = document.getElementById('predictionConfidence');
         const predictionStatusEl = document.getElementById('predictionStatus');
         const activeModelDisplay = document.getElementById('activeModelDisplay');
         const finalName = document.getElementById('finalName');
@@ -276,8 +328,6 @@ class LightningDiceApp {
         const waitingReason = this.currentPrediction?.waitingReason || 'UNIQUE_MEDIAN_NOT_FOUND';
         const stats = this.currentPrediction?.stats;
         
-        if (predictionGroupEl) predictionGroupEl.innerHTML = '<span class="waiting-text">⏳ WAITING</span>';
-        if (predictionConfidenceEl) predictionConfidenceEl.textContent = '0%';
         if (predictionStatusEl) predictionStatusEl.innerHTML = '<span class="status-wait">⏳ WAITING MODE</span>';
         if (activeModelDisplay) activeModelDisplay.innerHTML = '<span class="status-wait">WAITING</span>';
         if (finalName) finalName.textContent = 'WAITING';
@@ -298,13 +348,13 @@ class LightningDiceApp {
         
         if (stats && finalExplanation) {
             finalExplanation.innerHTML = `
-                <strong>⏳ WAITING MODE</strong><br><br>
+                <strong>⏳ WAITING MODE (all predictors waiting)</strong><br><br>
                 📊 <strong>Last 30 Frequencies:</strong><br>
                 🔴 LOW: ${stats.LOW.count} times (${stats.LOW.percentage}%) ${stats.LOW.trend.emoji}<br>
                 🟡 MEDIUM: ${stats.MEDIUM.count} times (${stats.MEDIUM.percentage}%) ${stats.MEDIUM.trend.emoji}<br>
                 🟢 HIGH: ${stats.HIGH.count} times (${stats.HIGH.percentage}%) ${stats.HIGH.trend.emoji}<br><br>
                 ⚠️ <strong>Reason:</strong> ${waitingMessage}<br><br>
-                💡 <em>Prediction will be made when median becomes UNIQUE.</em>
+                💡 <em>All three predictors (MEDIAN, HIGH-VOLUME, LOW-VOLUME) will make predictions when median becomes UNIQUE.</em>
             `;
         } else if (finalExplanation) {
             finalExplanation.innerHTML = `
@@ -327,7 +377,7 @@ class LightningDiceApp {
             `;
         }
         
-        this.updateMedianDisplay();
+        this.updateTripleDisplay();
     }
     
     getGroupIcon(group) {
@@ -371,7 +421,7 @@ class LightningDiceApp {
         if (!tbody) return;
         
         if (!this.predictionHistory || this.predictionHistory.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7">No predictions yet. Waiting for unique median condition...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6">No predictions yet. Waiting for unique median condition...</td></tr>';
             this.updatePaginationControls();
             return;
         }
@@ -380,7 +430,7 @@ class LightningDiceApp {
         const pageItems = this.predictionHistory.slice(startIndex, startIndex + this.itemsPerPage);
         
         if (pageItems.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7">No history data on this page...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6">No history data on this page...</td></tr>';
             this.updatePaginationControls();
             return;
         }
@@ -393,35 +443,23 @@ class LightningDiceApp {
                 return '⚪';
             };
             
-            const getBadgeClass = (isCorrect, isPending) => {
-                if (isPending) return 'pending';
-                if (isCorrect === true) return 'correct';
-                if (isCorrect === false) return 'incorrect';
-                return '';
+            const getPredictionCell = (predictedGroup, isCorrect) => {
+                const icon = getIcon(predictedGroup);
+                const correctClass = isCorrect === true ? 'correct' : (isCorrect === false ? 'incorrect' : 'pending');
+                const checkIcon = isCorrect === true ? '✓' : (isCorrect === false ? '✗' : '⏳');
+                return `<span class="prediction-cell ${correctClass}">${icon} ${predictedGroup || '--'} ${checkIcon}</span>`;
             };
             
-            const getCheckmark = (isCorrect, isPending) => {
-                if (isPending) return '⏳';
-                if (isCorrect === true) return '✓';
-                if (isCorrect === false) return '✗';
-                return '?';
-            };
-            
-            const isPending = item.isPending || false;
-            const actualDisplay = item.actualGroup && item.actualGroup !== '?' ? `${getIcon(item.actualGroup)} ${item.actualGroup}` : 'Pending';
-            const protectionDisplay = '📊 MEDIAN';
-            const retryText = item.isRetry ? `<div style="font-size:8px; opacity:0.6;">Retry #${item.retryNumber || 0}</div>` : '';
-            const medianInfo = item.medianValue ? `<div style="font-size:8px;">Median: ${item.medianValue}</div>` : '';
+            const retryText = item.retryNumber > 0 ? `<div class="retry-badge">Retry #${item.retryNumber}</div>` : '';
             
             return `
                 <tr>
                     <td style="font-size: 11px;">${item.time || '--'}</td>
                     <td class="dice-values" style="font-size: 11px;">🎲 ${item.dice || '--'}</td>
-                    <td><strong>${item.total || '--'}</strong><br><small>${actualDisplay}</small></td>
-                    <td><span class="pattern-badge">30-Result Median</span>${medianInfo}</td>
-                    <td><span class="protection-badge badge-median">${protectionDisplay}</span>${retryText}</td>
-                    <td><span class="prediction-badge">${getIcon(item.predictedGroup)} ${item.predictedGroup || '--'}</span></td>
-                    <td><span class="result-badge ${getBadgeClass(item.isCorrect, isPending)}">${getCheckmark(item.isCorrect, isPending)}</span></td>
+                    <td><strong>${item.total || '--'}</strong><br><small>${getIcon(item.actualGroup)} ${item.actualGroup || '?'}</small></td>
+                    <td>${getPredictionCell(item.predictedGroup, item.isCorrect)}${item.medianValue ? `<div class="small-info">Median: ${item.medianValue}</div>` : ''}</td>
+                    <td>${getPredictionCell(item.predictedHighVol, item.isHighVolCorrect)}${retryText}</td>
+                    <td>${getPredictionCell(item.predictedLowVol, item.isLowVolCorrect)}</td>
                 </tr>
             `;
         }).join('');
@@ -610,7 +648,7 @@ class LightningDiceApp {
             this.currentPrediction = data.prediction;
             this.displayPrediction(data.prediction);
             this.updateGroupProbabilities();
-            this.updateMedianDisplay();
+            this.updateTripleDisplay();
         }
         
         // Update stats
