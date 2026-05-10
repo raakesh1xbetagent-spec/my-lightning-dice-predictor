@@ -1174,3 +1174,43 @@ input:checked + .slider:before {
     font-weight: 700;
     animation: pulse 1.5s infinite;
 }
+
+/* Fixed height for table cells to prevent jumping */
+.history-table td {
+    vertical-align: middle;
+    padding: 10px 6px;
+    min-height: 70px;
+}
+
+/* Fixed height retry badge container */
+.retry-badge {
+    min-height: 18px;
+    font-size: 9px;
+    opacity: 0.6;
+    margin-top: 2px;
+    color: #fbbf24;
+}
+
+/* Ensure all prediction cells have consistent height */
+.prediction-cell {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    min-width: 70px;
+    text-align: center;
+}
+
+/* Small info consistent height */
+.small-info {
+    min-height: 16px;
+    font-size: 8px;
+    opacity: 0.5;
+    margin-top: 2px;
+}
+
+/* Make all table rows same height */
+.history-table tr {
+    height: 70px;
+}
