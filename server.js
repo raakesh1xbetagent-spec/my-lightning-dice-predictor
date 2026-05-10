@@ -1,7 +1,11 @@
 // ============================================================
-// server.js (v13.0 - MEDIAN BASED STATISTICAL AI)
-// Features: 30-result median-based prediction | WAITING on duplicates
-// Telegram: Full notification system for all states
+// server.js (v14.0 - TRIPLE PREDICTOR AI)
+// Features: 
+// - 30-result analysis with THREE predictors (MEDIAN, HIGH-VOL, LOW-VOL)
+// - Shared WAITING on duplicate medians
+// - Shared retry system for all predictors
+// - Database stores all three predictions separately
+// - Telegram: Full notification system for all states
 // ============================================================
 
 // Fix memory leak warnings
@@ -45,15 +49,15 @@ async function sendTelegramWaiting(waitingData) {
     }
 }
 
-async function sendTelegramCorrect(predictedGroup, actualGroup, retryCount) {
+async function sendTelegramCorrect(predictedGroups, actualGroup, retryCount) {
     if (telegramBot && telegramBot.isEnabled) {
-        await telegramBot.sendCorrectNotification(predictedGroup, actualGroup, retryCount);
+        await telegramBot.sendTripleCorrectNotification(predictedGroups, actualGroup, retryCount);
     }
 }
 
-async function sendTelegramWrong(predictedGroup, actualGroup, retryCount) {
+async function sendTelegramWrong(predictedGroups, actualGroup, retryCount) {
     if (telegramBot && telegramBot.isEnabled) {
-        await telegramBot.sendWrongNotification(predictedGroup, actualGroup, retryCount);
+        await telegramBot.sendTripleWrongNotification(predictedGroups, actualGroup, retryCount);
     }
 }
 
@@ -69,7 +73,7 @@ const dbPath = path.join(dbDir, 'lightning_dice.db');
 console.log('📂 Database path:', dbPath);
 const db = new sqlite3.Database(dbPath);
 
-// Create tables (UPDATED for v13.0)
+// Create tables (UPDATED for v14.0 - Triple Predictor)
 db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS results (
         id TEXT PRIMARY KEY,
@@ -82,6 +86,7 @@ db.serialize(() => {
         payout INTEGER
     )`);
     
+    // Updated predictions table for triple predictors
     db.run(`CREATE TABLE IF NOT EXISTS predictions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         result_id TEXT UNIQUE,
@@ -97,7 +102,14 @@ db.serialize(() => {
         median_value INTEGER,
         frequencies TEXT,
         confidence INTEGER,
-        waiting_reason TEXT
+        waiting_reason TEXT,
+        -- New columns for triple predictors
+        predicted_high_vol TEXT,
+        predicted_low_vol TEXT,
+        confidence_high_vol INTEGER,
+        confidence_low_vol INTEGER,
+        is_high_vol_correct INTEGER DEFAULT -1,
+        is_low_vol_correct INTEGER DEFAULT -1
     )`);
     
     db.run(`CREATE TABLE IF NOT EXISTS ai_stats (
@@ -116,32 +128,43 @@ db.serialize(() => {
     
     // Add new columns if not exists (for backward compatibility)
     db.run(`ALTER TABLE predictions ADD COLUMN median_value INTEGER`, (err) => {
-        if (err && !err.message.includes('duplicate column')) {
-            // Column already exists or error
-        }
+        if (err && !err.message.includes('duplicate column')) {}
     });
     db.run(`ALTER TABLE predictions ADD COLUMN frequencies TEXT`, (err) => {
-        if (err && !err.message.includes('duplicate column')) {
-            // Column already exists
-        }
+        if (err && !err.message.includes('duplicate column')) {}
     });
     db.run(`ALTER TABLE predictions ADD COLUMN confidence INTEGER`, (err) => {
-        if (err && !err.message.includes('duplicate column')) {
-            // Column already exists
-        }
+        if (err && !err.message.includes('duplicate column')) {}
     });
     db.run(`ALTER TABLE predictions ADD COLUMN waiting_reason TEXT`, (err) => {
-        if (err && !err.message.includes('duplicate column')) {
-            // Column already exists
-        }
+        if (err && !err.message.includes('duplicate column')) {}
+    });
+    // Triple predictor columns
+    db.run(`ALTER TABLE predictions ADD COLUMN predicted_high_vol TEXT`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {}
+    });
+    db.run(`ALTER TABLE predictions ADD COLUMN predicted_low_vol TEXT`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {}
+    });
+    db.run(`ALTER TABLE predictions ADD COLUMN confidence_high_vol INTEGER`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {}
+    });
+    db.run(`ALTER TABLE predictions ADD COLUMN confidence_low_vol INTEGER`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {}
+    });
+    db.run(`ALTER TABLE predictions ADD COLUMN is_high_vol_correct INTEGER DEFAULT -1`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {}
+    });
+    db.run(`ALTER TABLE predictions ADD COLUMN is_low_vol_correct INTEGER DEFAULT -1`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {}
     });
     
-    console.log('✅ Database tables created/verified (v13.0 Median AI ready)');
+    console.log('✅ Database tables created/verified (v14.0 Triple Predictor AI ready)');
 });
 
 // ============ AI MODEL INITIALIZATION ============
 async function initNewAI() {
-    console.log('🤖 Initializing Median-Based Statistical AI (v13.0)...');
+    console.log('🤖 Initializing Triple Predictor Statistical AI (v14.0)...');
     serverAI = new MedianBasedAI();
     
     try {
@@ -168,13 +191,15 @@ async function initNewAI() {
         console.log('No existing AI state found, starting fresh');
     }
     
-    console.log(`✅ AI ready - Median-Based Statistical AI v${serverAI.version}`);
+    console.log(`✅ AI ready - Triple Predictor Statistical AI v${serverAI.version}`);
     console.log(`📊 Core Logic:`);
     console.log(`   - Analyzes last 30 results`);
-    console.log(`   - Calculates frequency median`);
-    console.log(`   - Predicts ONLY when median is UNIQUE`);
-    console.log(`   - WAITING on duplicate or equal frequencies`);
-    console.log(`   - Retry: Recalculates median with updated data`);
+    console.log(`   - THREE PREDICTORS:`);
+    console.log(`     1. MEDIAN: Unique median prediction`);
+    console.log(`     2. HIGH-VOLUME: Most frequent group`);
+    console.log(`     3. LOW-VOLUME: Least frequent group`);
+    console.log(`   - WAITING on duplicate median (affects ALL three)`);
+    console.log(`   - Shared retry system for all predictors`);
 }
 
 // Initialize Telegram Bot
@@ -222,7 +247,7 @@ app.use(express.static('public'));
 
 // ============ WEB SOCKET SERVER ============
 const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n⚡ Lightning Dice Predictor v13.0 - Median Based AI`);
+    console.log(`\n⚡ Lightning Dice Predictor v14.0 - Triple Predictor AI`);
     console.log(`📍 http://localhost:${PORT}`);
     console.log(`🚀 Server running on port ${PORT}\n`);
     initNewAI();
@@ -287,7 +312,6 @@ function getResultsData(limit = 100) {
 
 function getLast30Results() {
     return new Promise((resolve) => {
-        // FIXED: Using 'group_name' instead of 'group as group' (group is SQL keyword)
         db.all(`SELECT total, group_name, timestamp 
                 FROM results ORDER BY timestamp DESC LIMIT 30`, (err, rows) => {
             if (err) {
@@ -296,7 +320,7 @@ function getLast30Results() {
             } else {
                 const formatted = (rows || []).map(row => ({
                     total: row.total,
-                    group: row.group_name,  // Use group_name from result
+                    group: row.group_name,
                     timestamp: row.timestamp
                 }));
                 // Return in chronological order (oldest first for AI)
@@ -327,11 +351,17 @@ function getPredictionsData(limit = 500) {
                     total: p.total || '--',
                     actualGroup: p.actual_group || '?',
                     predictedGroup: p.predicted_group || '--',
+                    predictedHighVol: p.predicted_high_vol || null,
+                    predictedLowVol: p.predicted_low_vol || null,
                     isCorrect: p.is_correct === 1,
+                    isHighVolCorrect: p.is_high_vol_correct === 1,
+                    isLowVolCorrect: p.is_low_vol_correct === 1,
                     isRetry: p.is_retry === 1,
                     retryNumber: p.retry_number || 0,
                     medianValue: p.median_value,
                     confidence: p.confidence,
+                    confidenceHighVol: p.confidence_high_vol,
+                    confidenceLowVol: p.confidence_low_vol,
                     timestamp: new Date(p.prediction_timestamp),
                     isPending: p.actual_group === null
                 }));
@@ -402,7 +432,7 @@ async function getCurrentPredictionData() {
         };
     }
     
-    console.log(`🔮 Analyzing last 30 results for prediction...`);
+    console.log(`🔮 Analyzing last 30 results for triple prediction...`);
     
     if (serverAI) {
         const prediction = serverAI.predict(last30Results);
@@ -425,12 +455,12 @@ async function savePredictionOnly(resultId, last30Results) {
         return null;
     }
     
-    console.log(`🔮 Generating prediction for ${resultId}...`);
+    console.log(`🔮 Generating triple prediction for ${resultId}...`);
     
     const prediction = await getCurrentPredictionData();
     
-    // Don't save if no valid prediction
-    if (prediction.status === "WAITING" || !prediction.predictedGroup) {
+    // Don't save if no valid prediction (WAITING mode)
+    if (prediction.status === "WAITING" || !prediction.median || !prediction.median.predictedGroup) {
         console.log(`⚠️ NOT saving prediction for ${resultId} - AI is in WAITING mode`);
         
         // Still save waiting state for tracking
@@ -445,16 +475,16 @@ async function savePredictionOnly(resultId, last30Results) {
                     result_id, protection_type, predicted_group, prediction_timestamp, 
                     is_correct, waiting_reason
                 ) VALUES (?, ?, ?, ?, -1, ?)`,
-                [resultId, 'MEDIAN_AI', 'WAITING', new Date().toISOString(), prediction.waitingReason || 'UNKNOWN']);
+                [resultId, 'TRIPLE_AI', 'WAITING', new Date().toISOString(), prediction.waitingReason || 'UNKNOWN']);
         }
         return null;
     }
     
-    console.log(`\n📝 SAVING PREDICTION for ${resultId}:`);
-    console.log(`   Predicted Group: ${prediction.predictedGroup}`);
-    console.log(`   Median Value: ${prediction.medianValue}`);
-    console.log(`   Confidence: ${prediction.confidence}%`);
-    console.log(`   Is Retry: ${prediction.isRetry || false}`);
+    console.log(`\n📝 SAVING TRIPLE PREDICTION for ${resultId}:`);
+    console.log(`   MEDIAN: ${prediction.median.predictedGroup} (${prediction.median.confidence}%)`);
+    console.log(`   HIGH-VOLUME: ${prediction.highVolume.predictedGroup} (${prediction.highVolume.confidence}%)`);
+    console.log(`   LOW-VOLUME: ${prediction.lowVolume.predictedGroup} (${prediction.lowVolume.confidence}%)`);
+    console.log(`   Shared Retry Count: ${prediction.retryCount || 0}`);
     
     const frequencies = prediction.frequencies;
     const frequenciesJson = JSON.stringify(frequencies);
@@ -468,28 +498,39 @@ async function savePredictionOnly(resultId, last30Results) {
     const isRetry = prediction.isRetry ? 1 : 0;
     const retryNumber = prediction.retryCount || 0;
     
+    const medianGroup = prediction.median.predictedGroup;
+    const medianConfidence = prediction.median.confidence;
+    const highVolGroup = prediction.highVolume.predictedGroup;
+    const highVolConfidence = prediction.highVolume.confidence;
+    const lowVolGroup = prediction.lowVolume.predictedGroup;
+    const lowVolConfidence = prediction.lowVolume.confidence;
+    
     if (existing) {
         return new Promise((resolve) => {
             db.run(`UPDATE predictions SET 
                     protection_type = ?,
                     predicted_group = ?,
+                    predicted_high_vol = ?,
+                    predicted_low_vol = ?,
                     prediction_timestamp = ?,
                     is_retry = ?,
                     retry_number = ?,
                     median_value = ?,
                     frequencies = ?,
                     confidence = ?,
+                    confidence_high_vol = ?,
+                    confidence_low_vol = ?,
                     waiting_reason = NULL
                     WHERE result_id = ?`,
-                ['MEDIAN_AI', prediction.predictedGroup, new Date().toISOString(), 
+                ['TRIPLE_AI', medianGroup, highVolGroup, lowVolGroup, new Date().toISOString(), 
                  isRetry, retryNumber, prediction.medianValue, frequenciesJson, 
-                 prediction.confidence, resultId],
+                 medianConfidence, highVolConfidence, lowVolConfidence, resultId],
                 (err) => {
                     if (err) {
                         console.error('Error updating prediction:', err);
                         resolve(null);
                     } else {
-                        console.log(`✅ Prediction UPDATED for ${resultId}`);
+                        console.log(`✅ Triple Prediction UPDATED for ${resultId}`);
                         resolve(prediction);
                     }
                 }
@@ -498,17 +539,19 @@ async function savePredictionOnly(resultId, last30Results) {
     } else {
         return new Promise((resolve) => {
             db.run(`INSERT INTO predictions (
-                    result_id, protection_type, predicted_group, prediction_timestamp, 
-                    is_correct, is_retry, retry_number, median_value, frequencies, confidence
-                ) VALUES (?, ?, ?, ?, -1, ?, ?, ?, ?, ?)`,
-                [resultId, 'MEDIAN_AI', prediction.predictedGroup, new Date().toISOString(),
-                 isRetry, retryNumber, prediction.medianValue, frequenciesJson, prediction.confidence],
+                    result_id, protection_type, predicted_group, predicted_high_vol, predicted_low_vol,
+                    prediction_timestamp, is_correct, is_retry, retry_number, 
+                    median_value, frequencies, confidence, confidence_high_vol, confidence_low_vol
+                ) VALUES (?, ?, ?, ?, ?, ?, -1, ?, ?, ?, ?, ?, ?, ?)`,
+                [resultId, 'TRIPLE_AI', medianGroup, highVolGroup, lowVolGroup, new Date().toISOString(),
+                 isRetry, retryNumber, prediction.medianValue, frequenciesJson, 
+                 medianConfidence, highVolConfidence, lowVolConfidence],
                 (err) => {
                     if (err) {
                         console.error('Error saving prediction:', err);
                         resolve(null);
                     } else {
-                        console.log(`✅ Prediction INSERTED for ${resultId}`);
+                        console.log(`✅ Triple Prediction INSERTED for ${resultId}`);
                         resolve(prediction);
                     }
                 }
@@ -518,11 +561,11 @@ async function savePredictionOnly(resultId, last30Results) {
 }
 
 async function updatePredictionWithResult(resultId, actualGroup) {
-    console.log(`\n📊 UPDATING PREDICTION with result for ${resultId}:`);
+    console.log(`\n📊 UPDATING TRIPLE PREDICTION with result for ${resultId}:`);
     console.log(`   ACTUAL RESULT: ${actualGroup}`);
     
     const prediction = await new Promise((resolve) => {
-        db.get(`SELECT predicted_group, is_retry, retry_number, confidence 
+        db.get(`SELECT predicted_group, predicted_high_vol, predicted_low_vol, is_retry, retry_number, confidence 
                 FROM predictions WHERE result_id = ?`, [resultId], (err, row) => {
             if (err) {
                 console.error('Error fetching prediction:', err);
@@ -544,32 +587,44 @@ async function updatePredictionWithResult(resultId, actualGroup) {
         return null;
     }
     
-    const isCorrect = (prediction.predicted_group === actualGroup) ? 1 : 0;
+    // Check correctness for all three predictors
+    const isMedianCorrect = (prediction.predicted_group === actualGroup) ? 1 : 0;
+    const isHighVolCorrect = (prediction.predicted_high_vol === actualGroup) ? 1 : 0;
+    const isLowVolCorrect = (prediction.predicted_low_vol === actualGroup) ? 1 : 0;
     const isRetry = prediction.is_retry === 1;
     const retryCount = prediction.retry_number || 0;
     
-    console.log(`   PREDICTED: ${prediction.predicted_group} → ${isCorrect ? '✓ CORRECT' : '✗ WRONG'}`);
+    console.log(`   RESULTS:`);
+    console.log(`   MEDIAN: ${prediction.predicted_group} → ${isMedianCorrect ? '✓ CORRECT' : '✗ WRONG'}`);
+    console.log(`   HIGH-VOL: ${prediction.predicted_high_vol} → ${isHighVolCorrect ? '✓ CORRECT' : '✗ WRONG'}`);
+    console.log(`   LOW-VOL: ${prediction.predicted_low_vol} → ${isLowVolCorrect ? '✓ CORRECT' : '✗ WRONG'}`);
     
-    // Update AI model with the actual result
-    // Get updated last 30 results after this result
+    // Update AI model with the actual result (MEDIAN determines activation)
     const last30Results = await getLast30Results();
     let updateResult = null;
     
     if (serverAI && last30Results.length >= 30) {
         updateResult = serverAI.updateWithResult(actualGroup, last30Results);
-        console.log(`   AI Accuracy updated: ${serverAI.getAccuracy().toFixed(1)}%`);
+        console.log(`   Shared AI Accuracy updated: ${serverAI.getAccuracy().toFixed(1)}%`);
+        console.log(`   Shared Wrong Count: ${serverAI.consecutiveWrongCount}`);
         
         // Get new prediction status for next round
         const newPrediction = serverAI.predict(last30Results);
         
-        // Send Telegram notifications based on result
-        if (isCorrect === 1) {
-            await sendTelegramCorrect(prediction.predicted_group, actualGroup, retryCount);
+        // Send Telegram notifications with triple results
+        const predictedGroups = {
+            median: prediction.predicted_group,
+            highVolume: prediction.predicted_high_vol,
+            lowVolume: prediction.predicted_low_vol
+        };
+        
+        if (isMedianCorrect === 1) {
+            await sendTelegramCorrect(predictedGroups, actualGroup, retryCount);
         } else {
-            await sendTelegramWrong(prediction.predicted_group, actualGroup, retryCount + 1);
+            await sendTelegramWrong(predictedGroups, actualGroup, retryCount + 1);
             
             // If new prediction is available and different, send it
-            if (newPrediction.status === 'PREDICTION_READY' && newPrediction.predictedGroup !== prediction.predicted_group) {
+            if (newPrediction.status === 'PREDICTION_READY' && newPrediction.median.predictedGroup !== prediction.predicted_group) {
                 await sendTelegramPrediction(newPrediction);
             } else if (newPrediction.status === 'WAITING') {
                 await sendTelegramWaiting(newPrediction);
@@ -581,17 +636,19 @@ async function updatePredictionWithResult(resultId, actualGroup) {
         db.run(`UPDATE predictions SET
                 actual_group = ?,
                 actual_timestamp = ?,
-                is_correct = ?
+                is_correct = ?,
+                is_high_vol_correct = ?,
+                is_low_vol_correct = ?
                 WHERE result_id = ?`,
-            [actualGroup, new Date().toISOString(), isCorrect, resultId],
+            [actualGroup, new Date().toISOString(), isMedianCorrect, isHighVolCorrect, isLowVolCorrect, resultId],
             async (err) => {
                 if (err) {
                     console.error('Error updating prediction with result:', err);
                 } else {
-                    console.log(`✅ Prediction UPDATED with result for ${resultId}`);
-                    await updateAIStatsTable(isCorrect === 1);
+                    console.log(`✅ Triple Prediction UPDATED with result for ${resultId}`);
+                    await updateAIStatsTable(isMedianCorrect === 1);
                 }
-                resolve({ prediction, correct: isCorrect, updateResult });
+                resolve({ prediction, medianCorrect: isMedianCorrect, highVolCorrect: isHighVolCorrect, lowVolCorrect: isLowVolCorrect, updateResult });
             }
         );
     });
@@ -739,7 +796,7 @@ async function collectData() {
                     
                     if (last30Results.length >= 30) {
                         pendingPredictions.add(gameId);
-                        console.log(`🔮 Saving prediction FIRST for ${gameId}...`);
+                        console.log(`🔮 Saving triple prediction FIRST for ${gameId}...`);
                         predictionData = await savePredictionOnly(gameId, last30Results);
                         
                         // Send Telegram notification for prediction or waiting
@@ -761,7 +818,7 @@ async function collectData() {
                     const totalResult = game.result.total;
                     const group = getGroup(totalResult);
                     
-                    if (predictionData && predictionData.predictedGroup) {
+                    if (predictionData && predictionData.status === 'PREDICTION_READY') {
                         await updatePredictionWithResult(gameId, group);
                     }
                     
@@ -770,7 +827,7 @@ async function collectData() {
                     const currentPrediction = await getCurrentPredictionData();
                     await broadcastFullDataOnNewResult(savedResult, currentPrediction);
                     
-                    console.log(`✅ Complete flow done for game: ${gameId}`);
+                    console.log(`✅ Complete triple flow done for game: ${gameId}`);
                 }
             }
         }
@@ -809,7 +866,23 @@ async function checkDatabaseOnStartup() {
         else if (freq.HIGH === median && freq.LOW !== median && freq.MEDIUM !== median) medianGroup = 'HIGH';
         else medianGroup = 'DUPLICATE/WAITING';
         
-        console.log(`   🎯 Median Group: ${medianGroup}`);
+        // Calculate triple predictions
+        let highVolGroup = 'UNKNOWN';
+        let lowVolGroup = 'UNKNOWN';
+        
+        if (freq.LOW > freq.MEDIUM && freq.LOW > freq.HIGH) highVolGroup = 'LOW';
+        else if (freq.MEDIUM > freq.LOW && freq.MEDIUM > freq.HIGH) highVolGroup = 'MEDIUM';
+        else if (freq.HIGH > freq.LOW && freq.HIGH > freq.MEDIUM) highVolGroup = 'HIGH';
+        else highVolGroup = 'TIE';
+        
+        if (freq.LOW < freq.MEDIUM && freq.LOW < freq.HIGH) lowVolGroup = 'LOW';
+        else if (freq.MEDIUM < freq.LOW && freq.MEDIUM < freq.HIGH) lowVolGroup = 'MEDIUM';
+        else if (freq.HIGH < freq.LOW && freq.HIGH < freq.MEDIUM) lowVolGroup = 'HIGH';
+        else lowVolGroup = 'TIE';
+        
+        console.log(`   🎯 MEDIAN Group: ${medianGroup}`);
+        console.log(`   🎯 HIGH-VOLUME: ${highVolGroup}`);
+        console.log(`   🎯 LOW-VOLUME: ${lowVolGroup}`);
     } else {
         console.log(`   ⚠️ Need ${30 - resultCount} more results for prediction`);
     }
@@ -873,13 +946,19 @@ app.get('/api/predictions', (req, res) => {
             actual_group: p.actual_group || null,
             dice_values: p.dice_values || null,
             result_time: p.result_time || null,
-            protection_type: p.protection_type || 'MEDIAN_AI',
+            protection_type: p.protection_type || 'TRIPLE_AI',
             predicted_group: p.predicted_group,
+            predicted_high_vol: p.predicted_high_vol,
+            predicted_low_vol: p.predicted_low_vol,
             is_correct: p.is_correct,
+            is_high_vol_correct: p.is_high_vol_correct,
+            is_low_vol_correct: p.is_low_vol_correct,
             is_retry: p.is_retry === 1,
             retry_number: p.retry_number || 0,
             median_value: p.median_value,
             confidence: p.confidence,
+            confidence_high_vol: p.confidence_high_vol,
+            confidence_low_vol: p.confidence_low_vol,
             prediction_timestamp: p.prediction_timestamp,
             is_pending: p.actual_group === null
         }));
@@ -987,7 +1066,7 @@ app.post('/api/reset-ai', (req, res) => {
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'OK', 
-        version: '13.0',
+        version: '14.0',
         timestamp: new Date().toISOString(),
         clients: clients.size,
         uptime: process.uptime(),
@@ -1035,7 +1114,7 @@ app.get('/api/diagnostic', async (req, res) => {
         
         res.json({
             success: true,
-            version: '13.0',
+            version: '14.0',
             database: {
                 path: dbPath,
                 exists: fs.existsSync(dbPath)
@@ -1066,15 +1145,18 @@ setInterval(collectData, 3000);
 collectData();
 
 console.log('📊 Background data collection started (every 3 seconds)');
-console.log('🤖 Median-Based Statistical AI v13.0 active');
-console.log('📊 Core Logic: Analyzes last 30 results, predicts median group when unique');
+console.log('🤖 Triple Predictor Statistical AI v14.0 active');
+console.log('📊 Core Logic: Analyzes last 30 results with THREE predictors');
+console.log('   1. MEDIAN (unique median only)');
+console.log('   2. HIGH-VOLUME (most frequent)');
+console.log('   3. LOW-VOLUME (least frequent)');
 console.log('🔌 WebSocket server ready for real-time updates');
-console.log('📱 Telegram: Full notification system (prediction, waiting, correct, wrong)');
-console.log('📈 v13.0 Features:');
+console.log('📱 Telegram: Triple notification system');
+console.log('📈 v14.0 Features:');
 console.log('   - 30-result frequency analysis');
-console.log('   - Median-based prediction (UNIQUE only)');
-console.log('   - WAITING on duplicate/equal frequencies');
-console.log('   - Auto-retry with recalculated median');
+console.log('   - THREE independent predictions');
+console.log('   - Shared WAITING on duplicate median');
+console.log('   - Shared retry system');
 console.log('   - Real-Time learning via database');
 
 // Graceful shutdown
