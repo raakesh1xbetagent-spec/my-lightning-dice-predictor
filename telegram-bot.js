@@ -1,11 +1,12 @@
 // ============================================================
-// telegram-bot.js (v14.0 - TRIPLE PREDICTOR FORMAT)
+// telegram-bot.js (v14.0 - TRIPLE PREDICTOR FORMAT) - FIXED VERSION
 // 
 // Features:
 // - Single message for RESULT & NEXT prediction (triple format)
 // - Shows three predictors in one line
 // - Clean, compact format
 // - No duplicate retry display
+// - FIXED: Added missing methods for server.js compatibility
 // ============================================================
 
 const axios = require('axios');
@@ -156,6 +157,143 @@ class TelegramBot {
         if (isCorrect === false) return '❌';
         return '⏳';
     }
+    
+    // ============================================================
+    // NEW METHODS ADDED FOR server.js COMPATIBILITY
+    // ============================================================
+    
+    /**
+     * Send prediction notification (called from server.js)
+     */
+    async sendPredictionNotification(predictionData) {
+        if (!this.isEnabled) return;
+        
+        // Rate limiting
+        const now = Date.now();
+        const predictedGroup = predictionData?.median?.predictedGroup;
+        if (this.lastNotification.type === 'prediction' && 
+            this.lastNotification.predictedGroup === predictedGroup &&
+            now - this.lastNotification.timestamp < 2000) {
+            return;
+        }
+        
+        this.lastNotification = {
+            type: 'prediction',
+            timestamp: now,
+            predictedGroup: predictedGroup
+        };
+        
+        const frequencies = predictionData?.stats;
+        await this.sendTriplePredictionNotification(predictionData, {
+            LOW: frequencies?.LOW?.count || 0,
+            MEDIUM: frequencies?.MEDIUM?.count || 0,
+            HIGH: frequencies?.HIGH?.count || 0
+        });
+    }
+    
+    /**
+     * Send waiting notification (called from server.js)
+     */
+    async sendWaitingNotification(waitingData) {
+        if (!this.isEnabled) return;
+        
+        // Rate limiting
+        const now = Date.now();
+        if (this.lastNotification.type === 'waiting' && now - this.lastNotification.timestamp < 10000) {
+            return;
+        }
+        
+        this.lastNotification = {
+            type: 'waiting',
+            timestamp: now,
+            predictedGroup: null
+        };
+        
+        const frequencies = waitingData?.stats;
+        await this.sendTripleWaitingNotification(waitingData, {
+            LOW: frequencies?.LOW?.count || 0,
+            MEDIUM: frequencies?.MEDIUM?.count || 0,
+            HIGH: frequencies?.HIGH?.count || 0
+        });
+    }
+    
+    /**
+     * Send correct notification for triple predictors (called from server.js)
+     */
+    async sendTripleCorrectNotification(predictedGroups, actualGroup, retryCount) {
+        if (!this.isEnabled) return;
+        
+        // Rate limiting
+        const now = Date.now();
+        if (this.lastNotification.type === 'correct' && now - this.lastNotification.timestamp < 3000) {
+            return;
+        }
+        
+        this.lastNotification = {
+            type: 'correct',
+            timestamp: now,
+            predictedGroup: predictedGroups.median
+        };
+        
+        const medianIcon = this.getGroupIcon(predictedGroups.median);
+        const highVolIcon = this.getGroupIcon(predictedGroups.highVolume);
+        const lowVolIcon = this.getGroupIcon(predictedGroups.lowVolume);
+        const actualIcon = this.getGroupIcon(actualGroup);
+        
+        const message = `✅ TRIPLE PREDICTOR - CORRECT!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📐 MEDIAN: ${medianIcon} ${predictedGroups.median} → ${actualIcon} ${actualGroup} ✓
+📈 HIGH-VOL: ${highVolIcon} ${predictedGroups.highVolume} → ${actualIcon} ${actualGroup} ✓
+📉 LOW-VOL: ${lowVolIcon} ${predictedGroups.lowVolume} → ${actualIcon} ${actualGroup} ✓
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔄 Shared Retry Count: ${retryCount || 0}`;
+        
+        await this.sendMessage(message);
+        console.log(`📱 Telegram: Triple correct notification sent (${predictedGroups.median}→${actualGroup})`);
+    }
+    
+    /**
+     * Send wrong notification for triple predictors (called from server.js)
+     */
+    async sendTripleWrongNotification(predictedGroups, actualGroup, retryCount) {
+        if (!this.isEnabled) return;
+        
+        // Rate limiting
+        const now = Date.now();
+        if (this.lastNotification.type === 'wrong' && now - this.lastNotification.timestamp < 3000) {
+            return;
+        }
+        
+        this.lastNotification = {
+            type: 'wrong',
+            timestamp: now,
+            predictedGroup: predictedGroups.median
+        };
+        
+        const medianIcon = this.getGroupIcon(predictedGroups.median);
+        const highVolIcon = this.getGroupIcon(predictedGroups.highVolume);
+        const lowVolIcon = this.getGroupIcon(predictedGroups.lowVolume);
+        const actualIcon = this.getGroupIcon(actualGroup);
+        
+        const medianStatus = predictedGroups.median === actualGroup ? '✓' : '✗';
+        const highVolStatus = predictedGroups.highVolume === actualGroup ? '✓' : '✗';
+        const lowVolStatus = predictedGroups.lowVolume === actualGroup ? '✓' : '✗';
+        
+        const message = `❌ TRIPLE PREDICTOR - WRONG!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📐 MEDIAN: ${medianIcon} ${predictedGroups.median} → ${actualIcon} ${actualGroup} ${medianStatus}
+📈 HIGH-VOL: ${highVolIcon} ${predictedGroups.highVolume} → ${actualIcon} ${actualGroup} ${highVolStatus}
+📉 LOW-VOL: ${lowVolIcon} ${predictedGroups.lowVolume} → ${actualIcon} ${actualGroup} ${lowVolStatus}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔄 Next Retry: #${retryCount}`;
+        
+        await this.sendMessage(message);
+        console.log(`📱 Telegram: Triple wrong notification sent (${predictedGroups.median}→${actualGroup})`);
+    }
+    
+    // ============================================================
+    // EXISTING METHODS (KEPT AS IS)
+    // ============================================================
     
     /**
      * Send TRIPLE PREDICTOR result & next notification (MAIN METHOD)
