@@ -1,5 +1,5 @@
 // ============================================================
-// server.js (v14.0 - TRIPLE PREDICTOR AI)
+// server.js (v14.0 - TRIPLE PREDICTOR AI) - FIXED VERSION
 // Features: 
 // - 30-result analysis with THREE predictors (MEDIAN, HIGH-VOL, LOW-VOL)
 // - Shared WAITING on duplicate medians
@@ -39,30 +39,62 @@ let telegramBot = null;
 // ============ TELEGRAM NOTIFICATION HELPER ============
 async function sendTelegramPrediction(prediction) {
     if (telegramBot && telegramBot.isEnabled) {
-        await telegramBot.sendPredictionNotification(prediction);
+        try {
+            if (typeof telegramBot.sendPredictionNotification === 'function') {
+                await telegramBot.sendPredictionNotification(prediction);
+            } else if (typeof telegramBot.sendTriplePredictionNotification === 'function') {
+                const frequencies = prediction?.stats;
+                await telegramBot.sendTriplePredictionNotification(prediction, {
+                    LOW: frequencies?.LOW?.count || 0,
+                    MEDIUM: frequencies?.MEDIUM?.count || 0,
+                    HIGH: frequencies?.HIGH?.count || 0
+                });
+            }
+        } catch (err) {
+            console.log('⚠️ Telegram prediction send error:', err.message);
+        }
     }
 }
 
 async function sendTelegramWaiting(waitingData) {
     if (telegramBot && telegramBot.isEnabled) {
-        await telegramBot.sendWaitingNotification(waitingData);
+        try {
+            if (typeof telegramBot.sendWaitingNotification === 'function') {
+                await telegramBot.sendWaitingNotification(waitingData);
+            } else if (typeof telegramBot.sendTripleWaitingNotification === 'function') {
+                const frequencies = waitingData?.stats;
+                await telegramBot.sendTripleWaitingNotification(waitingData, {
+                    LOW: frequencies?.LOW?.count || 0,
+                    MEDIUM: frequencies?.MEDIUM?.count || 0,
+                    HIGH: frequencies?.HIGH?.count || 0
+                });
+            }
+        } catch (err) {
+            console.log('⚠️ Telegram waiting send error:', err.message);
+        }
     }
 }
 
 async function sendTelegramCorrect(predictedGroups, actualGroup, retryCount) {
     if (telegramBot && telegramBot.isEnabled) {
-        // Check if method exists, if not, skip
-        if (typeof telegramBot.sendTripleCorrectNotification === 'function') {
-            await telegramBot.sendTripleCorrectNotification(predictedGroups, actualGroup, retryCount);
+        try {
+            if (typeof telegramBot.sendTripleCorrectNotification === 'function') {
+                await telegramBot.sendTripleCorrectNotification(predictedGroups, actualGroup, retryCount);
+            }
+        } catch (err) {
+            console.log('⚠️ Telegram correct send error:', err.message);
         }
     }
 }
 
 async function sendTelegramWrong(predictedGroups, actualGroup, retryCount) {
     if (telegramBot && telegramBot.isEnabled) {
-        // Check if method exists, if not, skip
-        if (typeof telegramBot.sendTripleWrongNotification === 'function') {
-            await telegramBot.sendTripleWrongNotification(predictedGroups, actualGroup, retryCount);
+        try {
+            if (typeof telegramBot.sendTripleWrongNotification === 'function') {
+                await telegramBot.sendTripleWrongNotification(predictedGroups, actualGroup, retryCount);
+            }
+        } catch (err) {
+            console.log('⚠️ Telegram wrong send error:', err.message);
         }
     }
 }
@@ -567,7 +599,7 @@ async function savePredictionOnly(resultId, last30Results) {
 }
 
 // ============================================================
-// UPDATED updatePredictionWithResult with detailed logging
+// FIXED updatePredictionWithResult - Enhanced version
 // ============================================================
 async function updatePredictionWithResult(resultId, actualGroup) {
     console.log(`\n📊 UPDATING TRIPLE PREDICTION with result for ${resultId}:`);
@@ -607,31 +639,27 @@ async function updatePredictionWithResult(resultId, actualGroup) {
     
     const last30Results = await getLast30Results();
     
+    // Send Telegram notifications
+    const predictedGroups = {
+        median: prediction.predicted_group,
+        highVolume: prediction.predicted_high_vol,
+        lowVolume: prediction.predicted_low_vol
+    };
+    
+    if (isMedianCorrect === 1) {
+        await sendTelegramCorrect(predictedGroups, actualGroup, retryCount);
+    } else {
+        await sendTelegramWrong(predictedGroups, actualGroup, retryCount + 1);
+    }
+    
+    // Update AI state
     if (serverAI && last30Results.length >= 30) {
         serverAI.updateWithResult(actualGroup, last30Results);
         console.log(`   Shared AI Accuracy updated: ${serverAI.getAccuracy().toFixed(1)}%`);
         console.log(`   Shared Wrong Count: ${serverAI.consecutiveWrongCount}`);
-        
-        const newPrediction = serverAI.predict(last30Results);
-        const predictedGroups = {
-            median: prediction.predicted_group,
-            highVolume: prediction.predicted_high_vol,
-            lowVolume: prediction.predicted_low_vol
-        };
-        
-        if (isMedianCorrect === 1) {
-            await sendTelegramCorrect(predictedGroups, actualGroup, retryCount);
-        } else {
-            await sendTelegramWrong(predictedGroups, actualGroup, retryCount + 1);
-            if (newPrediction.status === 'PREDICTION_READY' && newPrediction.median && newPrediction.median.predictedGroup !== prediction.predicted_group) {
-                await sendTelegramPrediction(newPrediction);
-            } else if (newPrediction.status === 'WAITING') {
-                await sendTelegramWaiting(newPrediction);
-            }
-        }
     }
     
-    // CRITICAL FIX: Use function(err) instead of arrow function to get this.changes
+    // UPDATE DATABASE
     return new Promise((resolve) => {
         db.run(`UPDATE predictions SET
                 actual_group = ?,
@@ -653,7 +681,8 @@ async function updatePredictionWithResult(resultId, actualGroup) {
                         console.log(`✅ Triple Prediction UPDATED with result for ${resultId}`);
                     }
                     updateAIStatsTable(isMedianCorrect === 1);
-                    resolve({ success: true, changes: this.changes });
+                    resolve({ success: true, changes: this.changes, 
+                             isMedianCorrect, isHighVolCorrect, isLowVolCorrect });
                 }
             }
         );
@@ -677,7 +706,7 @@ async function updateAIStatsTable(correct) {
 }
 
 // ============================================================
-// UPDATED broadcastFullDataOnNewResult - always fetch fresh predictions
+// broadcastFullDataOnNewResult - always fetch fresh predictions
 // ============================================================
 async function broadcastFullDataOnNewResult(gameResult, predictionData) {
     console.log(`📡 Preparing broadcast for ${clients.size} clients...`);
@@ -771,7 +800,7 @@ async function saveGameResult(game) {
 }
 
 // ============================================================
-// UPDATED collectData() function - Always update prediction
+// FIXED collectData() function - With proper timing and retry
 // ============================================================
 async function collectData() {
     if (isCollecting) return;
@@ -807,6 +836,7 @@ async function collectData() {
                     
                     let predictionData = null;
                     
+                    // STEP 1: Save prediction FIRST (before result)
                     if (last30Results.length >= 30) {
                         pendingPredictions.add(gameId);
                         console.log(`🔮 Saving triple prediction FIRST for ${gameId}...`);
@@ -821,28 +851,37 @@ async function collectData() {
                         console.log(`⚠️ Cannot save prediction: need 30+ history, have ${last30Results.length}`);
                     }
                     
+                    // STEP 2: Save the actual result
                     const savedResult = await saveGameResult(game);
                     const totalResult = game.result.total;
                     const group = getGroup(totalResult);
                     console.log(`📊 Actual result: ${totalResult} → ${group}`);
                     
-                    // ALWAYS try to update prediction if it exists in database
-                    const existsInDb = await new Promise((resolve) => {
+                    // STEP 3: Wait a moment for prediction to be fully saved
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    
+                    // STEP 4: Update prediction with actual result
+                    const predictionExists = await new Promise((resolve) => {
                         db.get(`SELECT id FROM predictions WHERE result_id = ?`, [gameId], (err, row) => {
                             resolve(!!row);
                         });
                     });
                     
-                    if (existsInDb) {
+                    if (predictionExists) {
                         console.log(`🔄 Updating prediction for ${gameId} with actual group: ${group}`);
                         const updateResult = await updatePredictionWithResult(gameId, group);
                         console.log(`📊 Update result:`, updateResult);
                     } else {
-                        console.log(`⚠️ No prediction found for ${gameId} in DB, skipping update`);
+                        console.log(`⚠️ No prediction found for ${gameId} in DB, creating waiting record`);
+                        // Insert a record that it was waiting
+                        db.run(`INSERT OR REPLACE INTO predictions (result_id, protection_type, predicted_group, actual_group, actual_timestamp, is_correct)
+                                VALUES (?, ?, ?, ?, ?, -1)`,
+                            [gameId, 'WAITING_MODE', 'WAITING', group, new Date().toISOString()]);
                     }
                     
                     pendingPredictions.delete(gameId);
                     
+                    // STEP 5: Get fresh current prediction and broadcast
                     const currentPrediction = await getCurrentPredictionData();
                     await broadcastFullDataOnNewResult(savedResult, currentPrediction);
                     
