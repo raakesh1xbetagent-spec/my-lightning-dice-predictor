@@ -45,7 +45,7 @@
         .medium-bar { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
         .high-bar { background: linear-gradient(135deg, #4ade80, #22c55e); }
         
-        .last30-container {
+        .last10-container {
             display: flex;
             flex-wrap: wrap;
             gap: 6px;
@@ -321,9 +321,9 @@
             
             <div class="pattern-info-bar">
                 <div class="info-item">
-                    <span class="info-label">📐 Last 30 Results:</span>
-                    <div class="info-value" id="last30Groups">--</div>
-                    <span class="info-badge" id="last30Count">0/30</span>
+                    <span class="info-label">📐 Last 10 Results:</span>
+                    <div class="info-value" id="last10Groups">--</div>
+                    <span class="info-badge" id="last10Count">0/10</span>
                 </div>
                 <div class="info-item">
                     <span class="info-label">🔬 AI Status:</span>
@@ -337,7 +337,7 @@
 
             <!-- Frequency Analysis Card -->
             <div class="median-card" style="margin-bottom: 20px;">
-                <div style="font-size: 12px; opacity: 0.7;">📐 30-Result Frequency Analysis</div>
+                <div style="font-size: 12px; opacity: 0.7;">📐 10-Result Frequency Analysis</div>
                 <div class="median-info-grid">
                     <div class="median-info-item">
                         <div class="median-info-label">🔴 LOW</div>
@@ -415,7 +415,7 @@
             <div class="patterns-grid">
                 <div class="pattern-card">
                     <div class="pattern-3step">📊 Step 1: Collect Data</div>
-                    <div class="pattern-actions">Analyzes last 30 game results</div>
+                    <div class="pattern-actions">Analyzes last 10 game results</div>
                 </div>
                 <div class="pattern-card">
                     <div class="pattern-3step">📐 Step 2: Count Frequencies</div>
