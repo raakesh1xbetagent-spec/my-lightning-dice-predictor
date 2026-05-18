@@ -455,7 +455,7 @@ class LightningDiceApp {
             };
             
             // Shared retry text for all columns
-            const retryText = item.retryNumber > 0 ? `<div class="retry-badge">🔄 #${item.retryNumber}</div>` : '';
+            const retryText = '';
             
             // Fix: Actual group display - properly show actual result
             let actualDisplay = '';
