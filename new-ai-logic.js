@@ -300,7 +300,7 @@ class MedianBasedAI {
         const frequencies = this.updateFrequencies(last10Results);
         
         // Get last 10 for trend analysis
-        const last10Results = this.last10Results.slice(-10);
+        const recentResults = this.last10Results.slice(-10);
         
         // Calculate median
         const medianResult = this.calculateMedian(frequencies);
