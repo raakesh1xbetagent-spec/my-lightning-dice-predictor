@@ -353,7 +353,7 @@ function getLast10Results() {
         db.all(`SELECT total, group_name, timestamp 
                 FROM results ORDER BY timestamp DESC LIMIT 10`, (err, rows) => {
             if (err) {
-                console.error('Error in getLast30Results:', err);
+                console.error('Error in getLast10Results:', err);
                 resolve([]);
             } else {
                 const formatted = (rows || []).map(row => ({
@@ -363,7 +363,7 @@ function getLast10Results() {
                 }));
                 // Return in chronological order (oldest first for AI)
                 const chronological = formatted.reverse();
-                console.log(`📊 getLast30Results returning ${chronological.length} results`);
+                console.log(`📊 getLast10Results returning ${chronological.length} results`);
                 resolve(chronological);
             }
         });
@@ -487,7 +487,7 @@ async function getCurrentPredictionData() {
     };
 }
 
-async function savePredictionOnly(resultId, last30Results) {
+async function savePredictionOnly(resultId, last10Results) {
     if (!last10Results || last10Results.length < 10) {
         console.log(`⚠️ Cannot save prediction for ${resultId}: need 10 results, have ${last10Results?.length || 0}`);
         return null;
@@ -654,7 +654,7 @@ async function updatePredictionWithResult(resultId, actualGroup) {
     
     // Update AI state
     if (serverAI && last10Results.length >= 10) {
-        serverAI.updateWithResult(actualGroup, last30Results);
+        serverAI.updateWithResult(actualGroup, last10Results);
         console.log(`   Shared AI Accuracy updated: ${serverAI.getAccuracy().toFixed(1)}%`);
         console.log(`   Shared Wrong Count: ${serverAI.consecutiveWrongCount}`);
     }
@@ -740,7 +740,7 @@ async function broadcastFullDataOnNewResult(gameResult, predictionData) {
         stats: stats,
         aiStats: aiStats,
         allResults: results,
-        last30Groups: last30Groups
+        last10Groups: last10Groups
     });
     
     let sentCount = 0;
@@ -840,7 +840,7 @@ async function collectData() {
                     if (last10Results.length >= 10) {
                         pendingPredictions.add(gameId);
                         console.log(`🔮 Saving triple prediction FIRST for ${gameId}...`);
-                        predictionData = await savePredictionOnly(gameId, last30Results);
+                        predictionData = await savePredictionOnly(gameId, last10Results);
                         
                         if (predictionData && predictionData.status === 'PREDICTION_READY') {
                             await sendTelegramPrediction(predictionData);
@@ -848,7 +848,7 @@ async function collectData() {
                             await sendTelegramWaiting(predictionData);
                         }
                     } else {
-                        console.log(`⚠️ Cannot save prediction: need 10+ history, have ${last30Results.length}`);
+                        console.log(`⚠️ Cannot save prediction: need 10+ history, have ${last10Results.length}`);
                     }
                     
                     // STEP 2: Save the actual result
@@ -1084,7 +1084,7 @@ app.get('/api/current-prediction', async (req, res) => {
 });
 
 app.get('/api/last10', async (req, res) => {
-    const last10 = await getLast30Results();
+    const last10 = await getLast10Results();
     res.json({
         success: true,
         count: last10.length,
@@ -1145,7 +1145,7 @@ app.get('/api/diagnostic', async (req, res) => {
         
         const last10Results = await getLast10Results();
         const frequencies = { LOW: 0, MEDIUM: 0, HIGH: 0 };
-        for (const r of last30Results) {
+        for (const r of last10Results) {
             frequencies[r.group]++;
         }
         
@@ -1181,7 +1181,7 @@ app.get('/api/diagnostic', async (req, res) => {
                 frequencies: frequencies,
                 median: median,
                 medianGroup: medianGroup,
-                canPredict: isUnique && last10Results.length >= 30
+                canPredict: isUnique && last10Results.length >= 10
             },
             aiStatus: serverAI ? serverAI.getStatus() : null,
             telegram: {
