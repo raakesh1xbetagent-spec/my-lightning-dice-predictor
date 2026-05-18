@@ -485,11 +485,11 @@ class TelegramBot {
         const isUnique = [stats.LOW.count, stats.MEDIUM.count, stats.HIGH.count].filter(c => c === median).length === 1;
         const uniqueText = isUnique ? `✅ UNIQUE → ${medianGroup}` : '⚠️ DUPLICATE (WAITING)';
         
-        const message = `📊 LAST 30 STATISTICS
+        const message = `📊 LAST 10 STATISTICS
 ━━━━━━━━━━━━━━━━━━━━━
-🔴 LOW: ${stats.LOW.count}/30 (${stats.LOW.percentage}%) ${stats.LOW.trend?.emoji || '⚖️'}
-🟡 MEDIUM: ${stats.MEDIUM.count}/30 (${stats.MEDIUM.percentage}%) ${stats.MEDIUM.trend?.emoji || '⚖️'}
-🟢 HIGH: ${stats.HIGH.count}/30 (${stats.HIGH.percentage}%) ${stats.HIGH.trend?.emoji || '⚖️'}
+🔴 LOW: ${stats.LOW.count}/10 (${stats.LOW.percentage}%) ${stats.LOW.trend?.emoji || '⚖️'}
+🟡 MEDIUM: ${stats.MEDIUM.count}/10 (${stats.MEDIUM.percentage}%) ${stats.MEDIUM.trend?.emoji || '⚖️'}
+🟢 HIGH: ${stats.HIGH.count}/10 (${stats.HIGH.percentage}%) ${stats.HIGH.trend?.emoji || '⚖️'}
 ━━━━━━━━━━━━━━━━━━━━━
 📐 Median: ${median} → ${uniqueText}`;
         
@@ -695,7 +695,7 @@ class TelegramBot {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📱 Commands:
 /predict - Current prediction
-/stats - 30-result statistics
+/stats - 10-result statistics
 /history - Last 10 predictions
 /status - AI system status
 /reset - Reset AI (admin)`;
