@@ -203,7 +203,7 @@ class MedianBasedAI {
         }).length;
         
         const totalCount = frequencies[group];
-        const expectedIn10 = (totalCount / 30) * 10;
+        const expectedIn10 = (totalCount / 10) * 10;
         
         const difference = last10Count - expectedIn10;
         
@@ -292,10 +292,10 @@ class MedianBasedAI {
     
     /**
      * MAIN PREDICTION FUNCTION - Returns ALL THREE predictions
-     * @param {Array} last30Results - Array of last 10 results (each with .group or .total)
+     * @param {Array} last10Results - Array of last 10 results (each with .group or .total)
      * @returns {Object} Prediction result with all three predictors
      */
-    predict(last30Results) {
+    predict(last10Results) {
         // Update frequencies
         const frequencies = this.updateFrequencies(last10Results);
         
@@ -429,7 +429,7 @@ class MedianBasedAI {
             waitingForData: false,
             isRetry: isRetry,
             retryCount: this.consecutiveWrongCount,
-            last30Count: this.last10Results.length,
+            last10Count: this.last10Results.length,
             medianCalculation: medianResult.sorted
         };
         
@@ -573,7 +573,7 @@ class MedianBasedAI {
             currentFrequencies: this.currentFrequencies,
             medianValue: this.medianValue,
             medianGroup: this.medianGroup,
-            last30Count: this.last30Results.length
+            last10Count: this.last10Results.length
         };
     }
     
@@ -583,7 +583,7 @@ class MedianBasedAI {
     getCurrentFrequencies() {
         return {
             frequencies: this.currentFrequencies,
-            last30Count: this.last30Results.length
+            last10Count: this.last10Results.length
         };
     }
     
@@ -690,7 +690,7 @@ class MedianBasedAI {
 
 // Helper functions for external use
 function createMedianFromResults(results) {
-    if (!results || results.length < 30) {
+    if (!results || results.length < 10) {
         return null;
     }
     
