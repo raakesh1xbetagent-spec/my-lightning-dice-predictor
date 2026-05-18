@@ -18,7 +18,7 @@ class LightningDiceApp {
         this.currentPage = 1;
         this.itemsPerPage = 10;
         this.isInitialized = false;
-        this.last30Groups = [];
+        this.last10Groups = [];
         this.autoRefreshInterval = null;
         this.autoRefreshEnabled = true;
         this.refreshTimer = 3;
@@ -66,7 +66,7 @@ class LightningDiceApp {
             this.last10Groups = data.last10Groups || [];
             
             console.log(`✅ Filtered prediction history: ${this.predictionHistory.length} valid predictions`);
-            console.log(`📊 Last 10 groups: ${this.last30Groups.join(' → ')}`);
+            console.log(`📊 Last 10 groups: ${this.last10Groups.join(' → ')}`);
             
             this.displayPrediction(this.currentPrediction);
             this.renderHistoryTable();
@@ -74,7 +74,7 @@ class LightningDiceApp {
             this.updateStatisticsTable();
             this.updateGroupProbabilities();
             this.updateStatsDisplay(data.stats);
-            this.updateLast30Display();
+            this.updateLast10Display();
             this.updateTripleDisplay();
             
             console.log(`✅ Initial data loaded: ${this.allResults.length} results, ${this.predictionHistory.length} valid predictions`);
@@ -341,7 +341,7 @@ class LightningDiceApp {
         } else if (waitingReason === 'DUPLICATE_MEDIAN') {
             waitingMessage = '🔄 Median value appears in MULTIPLE groups. Waiting for unique median condition.';
         } else if (waitingReason === 'INSUFFICIENT_DATA') {
-            const needed = 30 - (this.last30Groups?.length || 0);
+            const needed = 10 - (this.last10Groups?.length || 0);
             waitingMessage = `⏳ Need ${needed} more results to start prediction (requires 10 results).`;
         } else {
             waitingMessage = '⏳ No unique median found. Waiting for next result...';
@@ -361,7 +361,7 @@ class LightningDiceApp {
             finalExplanation.innerHTML = `
                 <strong>⏳ WAITING MODE</strong><br><br>
                 ${waitingMessage}<br><br>
-                📊 Need 30 results for analysis. Currently have ${this.last10Groups?.length || 0}/10 results.
+                📊 Need 10 results for analysis. Currently have ${this.last10Groups?.length || 0}/10 results.
             `;
         }
         
@@ -647,7 +647,7 @@ class LightningDiceApp {
         }
         
         // Update last10 groups
-        if (data.last30Groups) {
+        if (data.last10Groups) {
             this.last10Groups = data.last10Groups;
             this.updateLast10Display();
             this.updateGroupProbabilities();
