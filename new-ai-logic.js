@@ -2,7 +2,7 @@
 // new-ai-logic.js (v14.0 - TRIPLE PREDICTOR AI)
 // 
 // Core Logic:
-// - Takes last 30 results
+// - Takes last 10 results
 // - Counts frequency of LOW, MEDIUM, HIGH
 // - THREE PREDICTORS:
 //   1. MEDIAN: Finds median of [LOW_count, MEDIUM_count, HIGH_count]
@@ -33,7 +33,7 @@ class MedianBasedAI {
             MEDIUM: 0,
             HIGH: 0
         };
-        this.last30Results = [];
+        this.last10Results = [];
         this.medianValue = null;
         this.medianGroup = null;
         
@@ -66,7 +66,7 @@ class MedianBasedAI {
      * Update frequencies from last 30 results
      */
     updateFrequencies(results) {
-        this.last30Results = results.slice(-30);
+        this.last30Results = results.slice(-10);
         
         // Reset frequencies
         this.currentFrequencies = {
@@ -300,7 +300,7 @@ class MedianBasedAI {
         const frequencies = this.updateFrequencies(last30Results);
         
         // Get last 10 for trend analysis
-        const last10Results = this.last30Results.slice(-10);
+        const last10Results = this.last10Results.slice(-10);
         
         // Calculate median
         const medianResult = this.calculateMedian(frequencies);
@@ -351,7 +351,7 @@ class MedianBasedAI {
                     message: `WAITING: Median condition not met`
                 },
                 waitingForData: true,
-                last30Count: this.last30Results.length,
+                last10Count: this.last10Results.length,
                 isRetry: false,
                 retryCount: 0
             };
