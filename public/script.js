@@ -63,10 +63,10 @@ class LightningDiceApp {
                        p.predictedGroup !== '--';
             });
             this.currentPrediction = data.currentPrediction || null;
-            this.last30Groups = data.last30Groups || [];
+            this.last10Groups = data.last10Groups || [];
             
             console.log(`✅ Filtered prediction history: ${this.predictionHistory.length} valid predictions`);
-            console.log(`📊 Last 30 groups: ${this.last30Groups.join(' → ')}`);
+            console.log(`📊 Last 10 groups: ${this.last30Groups.join(' → ')}`);
             
             this.displayPrediction(this.currentPrediction);
             this.renderHistoryTable();
@@ -84,26 +84,26 @@ class LightningDiceApp {
         }
     }
     
-    updateLast30Display() {
-        const container = document.getElementById('last30Groups');
-        const countContainer = document.getElementById('last30Count');
+    updateLast10Display() {
+        const container = document.getElementById('last10Groups');
+        const countContainer = document.getElementById('last10Count');
         
         if (!container) return;
         
-        if (this.last30Groups && this.last30Groups.length > 0) {
-            const groupsHtml = this.last30Groups.map(g => {
+        if (this.last10Groups && this.last10Groups.length > 0) {
+            const groupsHtml = this.last10Groups.map(g => {
                 const icon = this.getGroupIcon(g);
                 return `<span class="group-chip ${g.toLowerCase()}">${icon} ${g}</span>`;
             }).join('');
             
             container.innerHTML = groupsHtml;
             if (countContainer) {
-                countContainer.textContent = `${this.last30Groups.length}/30`;
+                countContainer.textContent = `${this.last10Groups.length}/10`;
             }
         } else {
-            container.innerHTML = '<span class="waiting-text">Collecting data... (need 30 results)</span>';
+            container.innerHTML = '<span class="waiting-text">Collecting data... (need 10 results)</span>';
             if (countContainer) {
-                countContainer.textContent = `${this.allResults.length}/30`;
+                countContainer.textContent = `${this.allResults.length}/10`;
             }
         }
     }
@@ -190,7 +190,7 @@ class LightningDiceApp {
     }
     
     updateGroupProbabilities() {
-        if (!this.last30Groups || this.last30Groups.length === 0) {
+        if (!this.last10Groups || this.last10Groups.length === 0) {
             const lowProb = document.getElementById('lowProb');
             const mediumProb = document.getElementById('mediumProb');
             const highProb = document.getElementById('highProb');
@@ -201,7 +201,7 @@ class LightningDiceApp {
         }
         
         const counts = { LOW: 0, MEDIUM: 0, HIGH: 0 };
-        for (const group of this.last30Groups) {
+        for (const group of this.last10Groups) {
             if (group === 'LOW') counts.LOW++;
             else if (group === 'MEDIUM') counts.MEDIUM++;
             else if (group === 'HIGH') counts.HIGH++;
@@ -285,7 +285,7 @@ class LightningDiceApp {
         if (finalExplanation) {
             finalExplanation.innerHTML = `
                 <strong>📊 TRIPLE PREDICTOR STATISTICAL AI v14.0</strong><br><br>
-                📐 <strong>Last 30 Frequencies:</strong><br>
+                📐 <strong>Last 10 Frequencies:</strong><br>
                 🔴 LOW: ${stats.LOW.count} times (${stats.LOW.percentage}%) ${stats.LOW.trend.emoji}<br>
                 🟡 MEDIUM: ${stats.MEDIUM.count} times (${stats.MEDIUM.percentage}%) ${stats.MEDIUM.trend.emoji}<br>
                 🟢 HIGH: ${stats.HIGH.count} times (${stats.HIGH.percentage}%) ${stats.HIGH.trend.emoji}<br><br>
@@ -342,7 +342,7 @@ class LightningDiceApp {
             waitingMessage = '🔄 Median value appears in MULTIPLE groups. Waiting for unique median condition.';
         } else if (waitingReason === 'INSUFFICIENT_DATA') {
             const needed = 30 - (this.last30Groups?.length || 0);
-            waitingMessage = `⏳ Need ${needed} more results to start prediction (requires 30 results).`;
+            waitingMessage = `⏳ Need ${needed} more results to start prediction (requires 10 results).`;
         } else {
             waitingMessage = '⏳ No unique median found. Waiting for next result...';
         }
@@ -350,7 +350,7 @@ class LightningDiceApp {
         if (stats && finalExplanation) {
             finalExplanation.innerHTML = `
                 <strong>⏳ WAITING MODE (all predictors waiting)</strong><br><br>
-                📊 <strong>Last 30 Frequencies:</strong><br>
+                📊 <strong>Last 10 Frequencies:</strong><br>
                 🔴 LOW: ${stats.LOW.count} times (${stats.LOW.percentage}%) ${stats.LOW.trend.emoji}<br>
                 🟡 MEDIUM: ${stats.MEDIUM.count} times (${stats.MEDIUM.percentage}%) ${stats.MEDIUM.trend.emoji}<br>
                 🟢 HIGH: ${stats.HIGH.count} times (${stats.HIGH.percentage}%) ${stats.HIGH.trend.emoji}<br><br>
@@ -361,7 +361,7 @@ class LightningDiceApp {
             finalExplanation.innerHTML = `
                 <strong>⏳ WAITING MODE</strong><br><br>
                 ${waitingMessage}<br><br>
-                📊 Need 30 results for analysis. Currently have ${this.last30Groups?.length || 0}/30 results.
+                📊 Need 30 results for analysis. Currently have ${this.last10Groups?.length || 0}/10 results.
             `;
         }
         
@@ -646,10 +646,10 @@ class LightningDiceApp {
             }
         }
         
-        // Update last30 groups
+        // Update last10 groups
         if (data.last30Groups) {
-            this.last30Groups = data.last30Groups;
-            this.updateLast30Display();
+            this.last10Groups = data.last10Groups;
+            this.updateLast10Display();
             this.updateGroupProbabilities();
         }
         
