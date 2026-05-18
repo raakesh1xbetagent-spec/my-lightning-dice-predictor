@@ -44,7 +44,7 @@ class MedianBasedAI {
         this.patternHistory = [];
         
         console.log(`🤖 ${this.name} v${this.version} initialized`);
-        console.log(`📊 Core Logic: 30-result analysis with THREE predictors`);
+        console.log(`📊 Core Logic: 10-result analysis with THREE predictors`);
         console.log(`   1. MEDIAN (unique median prediction)`);
         console.log(`   2. HIGH-VOLUME (most frequent group)`);
         console.log(`   3. LOW-VOLUME (least frequent group)`);
@@ -63,10 +63,10 @@ class MedianBasedAI {
     }
     
     /**
-     * Update frequencies from last 30 results
+     * Update frequencies from last 10 results
      */
     updateFrequencies(results) {
-        this.last30Results = results.slice(-10);
+        this.last10Results = results.slice(-10);
         
         // Reset frequencies
         this.currentFrequencies = {
@@ -76,7 +76,7 @@ class MedianBasedAI {
         };
         
         // Count occurrences
-        for (const result of this.last30Results) {
+        for (const result of this.last10Results) {
             const group = result.group || this.getGroup(result.total);
             if (group === 'LOW') this.currentFrequencies.LOW++;
             else if (group === 'MEDIUM') this.currentFrequencies.MEDIUM++;
@@ -292,12 +292,12 @@ class MedianBasedAI {
     
     /**
      * MAIN PREDICTION FUNCTION - Returns ALL THREE predictions
-     * @param {Array} last30Results - Array of last 30 results (each with .group or .total)
+     * @param {Array} last30Results - Array of last 10 results (each with .group or .total)
      * @returns {Object} Prediction result with all three predictors
      */
     predict(last30Results) {
         // Update frequencies
-        const frequencies = this.updateFrequencies(last30Results);
+        const frequencies = this.updateFrequencies(last10Results);
         
         // Get last 10 for trend analysis
         const last10Results = this.last10Results.slice(-10);
@@ -429,7 +429,7 @@ class MedianBasedAI {
             waitingForData: false,
             isRetry: isRetry,
             retryCount: this.consecutiveWrongCount,
-            last30Count: this.last30Results.length,
+            last30Count: this.last10Results.length,
             medianCalculation: medianResult.sorted
         };
         
