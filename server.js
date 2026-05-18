@@ -1,7 +1,7 @@
 // ============================================================
 // server.js (v14.0 - TRIPLE PREDICTOR AI) - FIXED VERSION
 // Features: 
-// - 30-result analysis with THREE predictors (MEDIAN, HIGH-VOL, LOW-VOL)
+// - 10-result analysis with THREE predictors (MEDIAN, HIGH-VOL, LOW-VOL)
 // - Shared WAITING on duplicate medians
 // - Shared retry system for all predictors
 // - Database stores all three predictions separately
@@ -231,7 +231,7 @@ async function initNewAI() {
     
     console.log(`✅ AI ready - Triple Predictor Statistical AI v${serverAI.version}`);
     console.log(`📊 Core Logic:`);
-    console.log(`   - Analyzes last 30 results`);
+    console.log(`   - Analyzes last 10 results`);
     console.log(`   - THREE PREDICTORS:`);
     console.log(`     1. MEDIAN: Unique median prediction`);
     console.log(`     2. HIGH-VOLUME: Most frequent group`);
@@ -348,10 +348,10 @@ function getResultsData(limit = 100) {
     });
 }
 
-function getLast30Results() {
+function getLast10Results() {
     return new Promise((resolve) => {
         db.all(`SELECT total, group_name, timestamp 
-                FROM results ORDER BY timestamp DESC LIMIT 30`, (err, rows) => {
+                FROM results ORDER BY timestamp DESC LIMIT 10`, (err, rows) => {
             if (err) {
                 console.error('Error in getLast30Results:', err);
                 resolve([]);
@@ -451,17 +451,17 @@ function getAIStatsData() {
 }
 
 async function getCurrentPredictionData() {
-    const last30Results = await getLast30Results();
+    const last10Results = await getLast10Results();
     
-    if (!last30Results || last30Results.length < 30) {
-        console.log(`⚠️ Not enough history for prediction (need 30 results, have ${last30Results?.length || 0})`);
+    if (!last10Results || last10Results.length < 10) {
+        console.log(`⚠️ Not enough history for prediction (need 10 results, have ${last10Results?.length || 0})`);
         return {
             status: "WAITING",
             waitingReason: "INSUFFICIENT_DATA",
             predictedGroup: null,
             confidence: 0,
             waitingForData: true,
-            message: `Waiting for 30 results. Currently have ${last30Results?.length || 0}/30`,
+            message: `Waiting for 10 results. Currently have ${last10Results?.length || 0}/10`,
             stats: {
                 LOW: { count: 0, percentage: 0, trend: { emoji: '⚖️', text: 'Waiting' } },
                 MEDIUM: { count: 0, percentage: 0, trend: { emoji: '⚖️', text: 'Waiting' } },
@@ -470,10 +470,10 @@ async function getCurrentPredictionData() {
         };
     }
     
-    console.log(`🔮 Analyzing last 30 results for triple prediction...`);
+    console.log(`🔮 Analyzing last 10 results for triple prediction...`);
     
     if (serverAI) {
-        const prediction = serverAI.predict(last30Results);
+        const prediction = serverAI.predict(last10Results);
         return prediction;
     }
     
@@ -488,8 +488,8 @@ async function getCurrentPredictionData() {
 }
 
 async function savePredictionOnly(resultId, last30Results) {
-    if (!last30Results || last30Results.length < 30) {
-        console.log(`⚠️ Cannot save prediction for ${resultId}: need 30 results, have ${last30Results?.length || 0}`);
+    if (!last10Results || last10Results.length < 10) {
+        console.log(`⚠️ Cannot save prediction for ${resultId}: need 10 results, have ${last10Results?.length || 0}`);
         return null;
     }
     
@@ -637,7 +637,7 @@ async function updatePredictionWithResult(resultId, actualGroup) {
     console.log(`   HIGH-VOL: ${prediction.predicted_high_vol} → ${isHighVolCorrect ? '✓ CORRECT' : '✗ WRONG'}`);
     console.log(`   LOW-VOL: ${prediction.predicted_low_vol} → ${isLowVolCorrect ? '✓ CORRECT' : '✗ WRONG'}`);
     
-    const last30Results = await getLast30Results();
+    const last10Results = await getLast10Results();
     
     // Send Telegram notifications
     const predictedGroups = {
@@ -653,7 +653,7 @@ async function updatePredictionWithResult(resultId, actualGroup) {
     }
     
     // Update AI state
-    if (serverAI && last30Results.length >= 30) {
+    if (serverAI && last10Results.length >= 10) {
         serverAI.updateWithResult(actualGroup, last30Results);
         console.log(`   Shared AI Accuracy updated: ${serverAI.getAccuracy().toFixed(1)}%`);
         console.log(`   Shared Wrong Count: ${serverAI.consecutiveWrongCount}`);
@@ -722,8 +722,8 @@ async function broadcastFullDataOnNewResult(gameResult, predictionData) {
     
     results.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     
-    const last30Results = await getLast30Results();
-    const last30Groups = last30Results.map(r => r.group);
+    const last10Results = await getLast10Results();
+    const last10Groups = last10Results.map(r => r.group);
     
     const message = JSON.stringify({
         type: 'new_result',
@@ -831,13 +831,13 @@ async function collectData() {
                 if (!exists) {
                     console.log(`🆕 New game detected: ${gameId}`);
                     
-                    const last30Results = await getLast30Results();
-                    console.log(`📜 Last 30 results count: ${last30Results.length}`);
+                    const last10Results = await getLast10Results();
+                    console.log(`📜 Last 10 results count: ${last10Results.length}`);
                     
                     let predictionData = null;
                     
                     // STEP 1: Save prediction FIRST (before result)
-                    if (last30Results.length >= 30) {
+                    if (last10Results.length >= 10) {
                         pendingPredictions.add(gameId);
                         console.log(`🔮 Saving triple prediction FIRST for ${gameId}...`);
                         predictionData = await savePredictionOnly(gameId, last30Results);
@@ -848,7 +848,7 @@ async function collectData() {
                             await sendTelegramWaiting(predictionData);
                         }
                     } else {
-                        console.log(`⚠️ Cannot save prediction: need 30+ history, have ${last30Results.length}`);
+                        console.log(`⚠️ Cannot save prediction: need 10+ history, have ${last30Results.length}`);
                     }
                     
                     // STEP 2: Save the actual result
@@ -905,13 +905,13 @@ async function checkDatabaseOnStartup() {
     });
     console.log(`   📊 Total results in database: ${resultCount}`);
     
-    if (resultCount >= 30) {
-        const last30Results = await getLast30Results();
+    if (resultCount >= 10) {
+        const last10Results = await getLast10Results();
         const freq = { LOW: 0, MEDIUM: 0, HIGH: 0 };
-        for (const r of last30Results) {
+        for (const r of last10Results) {
             freq[r.group]++;
         }
-        console.log(`   📊 Last 30 frequencies: LOW=${freq.LOW}, MEDIUM=${freq.MEDIUM}, HIGH=${freq.HIGH}`);
+        console.log(`   📊 Last 10 frequencies: LOW=${freq.LOW}, MEDIUM=${freq.MEDIUM}, HIGH=${freq.HIGH}`);
         
         const sorted = [freq.LOW, freq.MEDIUM, freq.HIGH].sort((a,b) => a-b);
         const median = sorted[1];
@@ -940,7 +940,7 @@ async function checkDatabaseOnStartup() {
         console.log(`   🎯 HIGH-VOLUME: ${highVolGroup}`);
         console.log(`   🎯 LOW-VOLUME: ${lowVolGroup}`);
     } else {
-        console.log(`   ⚠️ Need ${30 - resultCount} more results for prediction`);
+        console.log(`   ⚠️ Need ${10 - resultCount} more results for prediction`);
     }
     console.log('');
 }
@@ -959,8 +959,8 @@ app.get('/api/all-data', async (req, res) => {
         
         results.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         
-        const last30Results = await getLast30Results();
-        const last30Groups = last30Results.map(r => r.group);
+        const last10Results = await getLast10Results();
+        const last10Groups = last10Results.map(r => r.group);
         const aiStatus = serverAI ? serverAI.getStatus() : null;
         
         res.json({
@@ -970,7 +970,7 @@ app.get('/api/all-data', async (req, res) => {
             stats: stats,
             aiStats: aiStats,
             currentPrediction: currentPrediction,
-            last30Groups: last30Groups,
+            last10Groups: last10Groups,
             aiStatus: aiStatus
         });
     } catch (error) {
@@ -1083,13 +1083,13 @@ app.get('/api/current-prediction', async (req, res) => {
     });
 });
 
-app.get('/api/last30', async (req, res) => {
-    const last30 = await getLast30Results();
+app.get('/api/last10', async (req, res) => {
+    const last10 = await getLast30Results();
     res.json({
         success: true,
-        count: last30.length,
-        results: last30,
-        groups: last30.map(r => r.group)
+        count: last10.length,
+        results: last10,
+        groups: last10.map(r => r.group)
     });
 });
 
@@ -1143,7 +1143,7 @@ app.get('/api/diagnostic', async (req, res) => {
             });
         });
         
-        const last30Results = await getLast30Results();
+        const last10Results = await getLast10Results();
         const frequencies = { LOW: 0, MEDIUM: 0, HIGH: 0 };
         for (const r of last30Results) {
             frequencies[r.group]++;
@@ -1176,12 +1176,12 @@ app.get('/api/diagnostic', async (req, res) => {
                 results: resultsCount,
                 validPredictions: predictionsCount
             },
-            last30: {
-                count: last30Results.length,
+            last10: {
+                count: last10Results.length,
                 frequencies: frequencies,
                 median: median,
                 medianGroup: medianGroup,
-                canPredict: isUnique && last30Results.length >= 30
+                canPredict: isUnique && last10Results.length >= 30
             },
             aiStatus: serverAI ? serverAI.getStatus() : null,
             telegram: {
@@ -1199,14 +1199,14 @@ collectData();
 
 console.log('📊 Background data collection started (every 3 seconds)');
 console.log('🤖 Triple Predictor Statistical AI v14.0 active');
-console.log('📊 Core Logic: Analyzes last 30 results with THREE predictors');
+console.log('📊 Core Logic: Analyzes last 10 results with THREE predictors');
 console.log('   1. MEDIAN (unique median only)');
 console.log('   2. HIGH-VOLUME (most frequent)');
 console.log('   3. LOW-VOLUME (least frequent)');
 console.log('🔌 WebSocket server ready for real-time updates');
 console.log('📱 Telegram: Triple notification system');
 console.log('📈 v14.0 Features:');
-console.log('   - 30-result frequency analysis');
+console.log('   - 10-result frequency analysis');
 console.log('   - THREE independent predictions');
 console.log('   - Shared WAITING on duplicate median');
 console.log('   - Shared retry system');
